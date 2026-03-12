@@ -1,0 +1,28 @@
+# Variables de entorno (contienen tokens y claves)
+.env
+.env.local
+.env.*.local
+
+# Archivos con secretos
+webhook scrt.txt
+*scrt*.txt
+
+# Cursor (config local / por proyecto)
+.cursor/
+
+# Dependencias
+node_modules/
+panel/node_modules/
+
+# Builds
+dist/
+panel/dist/
+build/
+
+# Sistema y logs
+.DS_Store
+*.log
+npm-debug.log*
+
+# Supabase local (si usás CLI)
+.supabase/
