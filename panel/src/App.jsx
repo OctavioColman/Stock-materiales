@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
 
-const API_BASE = ""; // En desarrollo Vite hace proxy de /api a localhost:3001
+const API_BASE = typeof import.meta.env !== "undefined" && import.meta.env.VITE_API_URL != null
+  ? String(import.meta.env.VITE_API_URL).replace(/\/$/, "")
+  : ""; // En desarrollo Vite hace proxy de /api a localhost:3001
 
 async function apiFetch(url, { method = "GET", body } = {}) {
   const res = await fetch(`${API_BASE}${url}`, {
