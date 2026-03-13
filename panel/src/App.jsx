@@ -259,14 +259,6 @@ function FormularioCorreccion({ onClose, onSuccess }) {
         La corrección crea una actividad de tipo &quot;materiales&quot; en Jira. Cantidad puede ser positiva o negativa. Vínculo con actividad opcional.
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        <div>
-          <label style={{ color: "var(--text-primary)", display: "block", marginBottom: 4 }}>Resumen *</label>
-          <input value={summary} onChange={(e) => setSummary(e.target.value)} style={inputStyle} />
-        </div>
-        <div>
-          <label style={{ color: "var(--text-primary)", display: "block", marginBottom: 4 }}>Cantidad material *</label>
-          <input value={quantity} onChange={(e) => setQuantity(e.target.value)} placeholder="ej: -3 o 5" style={inputStyle} />
-        </div>
         <div style={{ position: "relative", ...dropdownZ }}>
           <label style={{ color: "var(--text-primary)", display: "block", marginBottom: 4 }}>Código material *</label>
           <input value={materialQuery} onChange={(e) => { setMaterialQuery(e.target.value); if (materialCode) setMaterialCode(""); }} placeholder="Escribí el código (ej: E084)" style={{ ...inputStyle, marginBottom: 0 }} autoComplete="off" />
@@ -279,6 +271,14 @@ function FormularioCorreccion({ onClose, onSuccess }) {
               ))}
             </ul>
           )}
+        </div>
+        <div>
+          <label style={{ color: "var(--text-primary)", display: "block", marginBottom: 4 }}>Nombre de material *</label>
+          <input value={summary} onChange={(e) => setSummary(e.target.value)} style={inputStyle} />
+        </div>
+        <div>
+          <label style={{ color: "var(--text-primary)", display: "block", marginBottom: 4 }}>Cantidad material *</label>
+          <input value={quantity} onChange={(e) => setQuantity(e.target.value)} placeholder="ej: -3 o 5" style={inputStyle} />
         </div>
         <div ref={issueDropdownRef} style={{ position: "relative", ...dropdownZ }}>
           <label style={{ color: "var(--text-primary)", display: "block", marginBottom: 4 }}>Vincular con actividad (opcional)</label>
