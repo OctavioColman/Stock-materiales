@@ -329,7 +329,7 @@ function FormularioCorreccion({ onClose, onSuccess }) {
   );
 }
 
-// Formulario Consumir: primero se elige la actividad; luego se listan materiales vinculados a ella y opcionalmente se añaden más (sin vincular a ningún epic).
+// Formulario Entregar: primero se elige la actividad; luego se listan materiales vinculados a ella y opcionalmente se añaden más (sin vincular a ningún epic).
 function FormularioConsumo({ onClose, onSuccess }) {
   const [issueQuery, setIssueQuery] = useState("");
   const [issueOptions, setIssueOptions] = useState([]);
@@ -557,9 +557,9 @@ function FormularioConsumo({ onClose, onSuccess }) {
       const val = linkedConsumptionByKey[key];
       const n = val === "" || val == null ? null : Number(val);
       if (maxQty <= 0) return { ok: false, key, msg: `Cantidad disponible en ${key} no es válida.` };
-      if (n == null || n === "") return { ok: false, key, msg: `Indicá la cantidad a consumir para ${key}.` };
-      if (Number.isNaN(n) || n <= 0) return { ok: false, key, msg: `La cantidad a consumir debe ser mayor a 0. En ${key} indicaste ${val}.` };
-      if (n > maxQty) return { ok: false, key, msg: `No se puede consumir más de lo disponible. En ${key} la cantidad disponible es ${maxQty}. La cantidad del material nunca puede quedar menor a cero.` };
+      if (n == null || n === "") return { ok: false, key, msg: `Indicá la cantidad a entregar para ${key}.` };
+      if (Number.isNaN(n) || n <= 0) return { ok: false, key, msg: `La cantidad a entregar debe ser mayor a 0. En ${key} indicaste ${val}.` };
+      if (n > maxQty) return { ok: false, key, msg: `No se puede entregar más de lo disponible. En ${key} la cantidad disponible es ${maxQty}. La cantidad del material nunca puede quedar menor a cero.` };
     }
     for (const key of selectedUnlinkedKeys) {
       const act = unlinkedActivitiesByKey[key];
@@ -567,9 +567,9 @@ function FormularioConsumo({ onClose, onSuccess }) {
       const val = unlinkedConsumptionByKey[key];
       const n = val === "" || val == null ? null : Number(val);
       if (maxQty <= 0) return { ok: false, key, msg: `Cantidad disponible en ${key} no es válida.` };
-      if (n == null || n === "") return { ok: false, key, msg: `Indicá la cantidad a consumir para ${key}.` };
-      if (Number.isNaN(n) || n <= 0) return { ok: false, key, msg: `La cantidad a consumir debe ser mayor a 0. En ${key} indicaste ${val}.` };
-      if (n > maxQty) return { ok: false, key, msg: `No se puede consumir más de lo disponible. En ${key} la cantidad disponible es ${maxQty}. La cantidad del material nunca puede quedar menor a cero.` };
+      if (n == null || n === "") return { ok: false, key, msg: `Indicá la cantidad a entregar para ${key}.` };
+      if (Number.isNaN(n) || n <= 0) return { ok: false, key, msg: `La cantidad a entregar debe ser mayor a 0. En ${key} indicaste ${val}.` };
+      if (n > maxQty) return { ok: false, key, msg: `No se puede entregar más de lo disponible. En ${key} la cantidad disponible es ${maxQty}. La cantidad del material nunca puede quedar menor a cero.` };
     }
     return { ok: true };
   }, [selectedLinkedKeys, selectedUnlinkedKeys, linkedActivitiesByKey, unlinkedActivitiesByKey, linkedConsumptionByKey, unlinkedConsumptionByKey]);
@@ -756,7 +756,7 @@ function FormularioConsumo({ onClose, onSuccess }) {
                         {selectedLinkedKeys.includes(a.key) && (
                           <div style={{ marginTop: 8, marginLeft: 26, display: "flex", alignItems: "center", gap: 8 }}>
                             <label style={{ fontSize: "0.85rem", color: "var(--text-primary)" }}>
-                              Cantidad a consumir:
+                              Cantidad a entregar:
                               <input
                                 type="number"
                                 min={0}
@@ -813,7 +813,7 @@ function FormularioConsumo({ onClose, onSuccess }) {
                           {selectedUnlinkedKeys.includes(a.key) && (
                             <div style={{ marginTop: 8, marginLeft: 26, display: "flex", alignItems: "center", gap: 8 }}>
                               <label style={{ fontSize: "0.85rem", color: "var(--text-primary)" }}>
-                                Cantidad a consumir:
+                                Cantidad a entregar:
                                 <input
                                   type="number"
                                   min={0}
@@ -838,7 +838,7 @@ function FormularioConsumo({ onClose, onSuccess }) {
         )}
       </div>
       <div style={{ marginTop: 18, display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-        <button disabled={!canCreate} onClick={onVincular} style={{ background: "var(--btn-bg)", color: "var(--btn-text)", border: "1px solid var(--border-color)", padding: "8px 16px", borderRadius: 8 }}>Consumir seleccionados</button>
+        <button disabled={!canCreate} onClick={onVincular} style={{ background: "var(--btn-bg)", color: "var(--btn-text)", border: "1px solid var(--border-color)", padding: "8px 16px", borderRadius: 8 }}>Entregar seleccionados</button>
         {onClose && <button type="button" onClick={onClose} style={{ padding: "8px 16px", borderRadius: 8, border: "1px solid var(--border-color)", background: "var(--input-bg)", color: "var(--text-primary)" }}>Cancelar</button>}
         {!consumptionValid.ok && consumptionValid.msg && (
           <span style={{ color: "var(--error)", fontSize: "0.9rem" }}>{consumptionValid.msg}</span>
@@ -1215,7 +1215,7 @@ function VistaStock() {
           📋 Corregir stock
         </button>
         <button type="button" onClick={() => setOpenModal("consumo")} style={btnStyle}>
-          ➕ Consumir
+          ➕ Entregar
         </button>
         <button type="button" onClick={() => setOpenModal("recibir")} style={btnStyle}>
           📥 Recibir
@@ -1225,7 +1225,7 @@ function VistaStock() {
       <Modal open={openModal === "correccion"} onClose={() => setOpenModal(null)} title="Corregir stock">
         <FormularioCorreccion onClose={() => setOpenModal(null)} onSuccess={() => setOpenModal(null)} />
       </Modal>
-      <Modal open={openModal === "consumo"} onClose={() => setOpenModal(null)} title="Consumir material">
+      <Modal open={openModal === "consumo"} onClose={() => setOpenModal(null)} title="Entregar material">
         <FormularioConsumo onClose={() => setOpenModal(null)} onSuccess={() => setOpenModal(null)} />
       </Modal>
       <Modal open={openModal === "recibir"} onClose={() => setOpenModal(null)} title="Recibir material">
