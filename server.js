@@ -116,7 +116,7 @@ app.get("/api/projects", (_req, res) => {
 // ---------- 1) Buscar actividades para vincular (Issue Picker + JQL search con nextPageToken) ----------
 const BASE_JQL = `project in (${ALLOWED_PROJECT_KEYS.join(",")})`;
 // Solo estos tipos para el selector de actividad en consumo
-const ACTIVITY_ISSUE_TYPES_JQL = `project in (${ALLOWED_PROJECT_KEYS.join(",")}) AND issuetype in ("Problema Mantenimiento", "Problema Electricidad", "Problema Jardinería", "Problema Infraestructura")`;
+const ACTIVITY_ISSUE_TYPES_JQL = `project in (${ALLOWED_PROJECT_KEYS.join(",")}) AND issuetype in ("Problema Mantenimiento", "Problema Electricidad", "Problema Jardinería", "Problema Infraestructura", "Detalle Mantenimiento", "Detalle Infraestructura", "Detalle Jardinería", "Detalle Electricidad", "Compra", "Epic")`;
 // Tipo Compra para el modal Recibir (reemplazado por Factura)
 // FACTURA para el modal Recibir: buscar solo por tipo de actividad (sin filtrar por proyecto)
 const FACTURA_ISSUE_TYPES_JQL = `issuetype in ("Factura", "Factura electricidad")`;
