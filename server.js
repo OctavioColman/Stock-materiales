@@ -1289,4 +1289,8 @@ app.post("/api/create", async (req, res) => {
   }
 });
 
-app.listen(3001, () => console.log("API running on http://localhost:3001"));
+const PORT = Number(process.env.PORT) || 3001;
+app.listen(PORT, () => {
+  const host = process.env.RENDER_EXTERNAL_URL ? new URL(process.env.RENDER_EXTERNAL_URL).origin : `http://localhost:${PORT}`;
+  console.log("API running on", host);
+});
