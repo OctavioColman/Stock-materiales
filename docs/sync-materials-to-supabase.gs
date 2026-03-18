@@ -67,6 +67,8 @@ function sheetToMaterials(sheet) {
 }
 
 function upsertBatch(url, key, rows) {
+  // on_conflict=material_code hace que el upsert use la PK; sin esto algunos entornos no aplican merge-duplicates
+  var endpoint = url + '/rest/v1/materials_catalog?on_conflict=material_code';
   var options = {
     method: 'post',
     contentType: 'application/json',
@@ -79,34 +81,54 @@ function upsertBatch(url, key, rows) {
     muteHttpExceptions: true
   };
 
-  var response = UrlFetchApp.fetch(url + '/rest/v1/materials_catalog', options);
+  var response = UrlFetchApp.fetch(endpoint, options);
   var code = response.getResponseCode();
+  var body = response.getContentText();
 
   if (code !== 200 && code !== 201 && code !== 204) {
-    throw new Error('Supabase ' + code + ': ' + response.getContentText());
+    Logger.log('Supabase respuesta: ' + code + ' - ' + body);
+    throw new Error('Supabase ' + code + ': ' + body);
   }
 }
 
 /**
  * Obtiene todos los material_code actuales en Supabase (para detectar los que ya no están en la hoja).
+ * PostgREST devuelve por defecto máx 1000 filas; usamos Range para pedir más (hasta 10000).
  */
 function fetchSupabaseMaterialCodes(url, key) {
-  var options = {
-    method: 'get',
-    headers: {
-      'apikey': key,
-      'Authorization': 'Bearer ' + key,
-      'Accept': 'application/json'
-    },
-    muteHttpExceptions: true
-  };
-  var response = UrlFetchApp.fetch(url + '/rest/v1/materials_catalog?select=material_code&order=material_code.asc&limit=10000', options);
-  var code = response.getResponseCode();
-  if (code !== 200) {
-    throw new Error('Supabase GET ' + code + ': ' + response.getContentText());
+  var allCodes = [];
+  var pageSize = 1000;
+  var start = 0;
+  var hasMore = true;
+  while (hasMore) {
+    var options = {
+      method: 'get',
+      headers: {
+        'apikey': key,
+        'Authorization': 'Bearer ' + key,
+        'Accept': 'application/json',
+        'Range': start + '-' + (start + pageSize - 1)
+      },
+      muteHttpExceptions: true
+    };
+    var response = UrlFetchApp.fetch(url + '/rest/v1/materials_catalog?select=material_code&order=material_code.asc', options);
+    var code = response.getResponseCode();
+    if (code !== 200 && code !== 206) {
+      throw new Error('Supabase GET ' + code + ': ' + response.getContentText());
+    }
+    var data = JSON.parse(response.getContentText());
+    var codes = Array.isArray(data) ? data.map(function (r) { return r.material_code; }) : [];
+    for (var j = 0; j < codes.length; j++) {
+      allCodes.push(codes[j]);
+    }
+    if (codes.length < pageSize) {
+      hasMore = false;
+    } else {
+      start += pageSize;
+      if (start >= 10000) { hasMore = false; }
+    }
   }
-  var data = JSON.parse(response.getContentText());
-  return Array.isArray(data) ? data.map(function (r) { return r.material_code; }) : [];
+  return allCodes;
 }
 
 /**
@@ -173,6 +195,8 @@ function syncMaterialsToSupabase() {
     Logger.log('Eliminados en Supabase ' + deleted + ' materiales que ya no están en la hoja.');
   }
 
+  Logger.log('Filas leídas de la hoja: ' + rows.length + '. Códigos (primeros 5): ' + rows.slice(0, 5).map(function (r) { return r.material_code; }).join(', '));
+
   var total = 0;
   for (var i = 0; i < rows.length; i += BATCH_SIZE) {
     var batch = rows.slice(i, i + BATCH_SIZE);
@@ -181,4 +205,27 @@ function syncMaterialsToSupabase() {
   }
 
   Logger.log('Sincronizadas ' + total + ' filas en materials_catalog.');
+
+  // Verificación: total en Supabase (paginado; PostgREST limita 1000 por request)
+  var codesInSupabase = fetchSupabaseMaterialCodes(config.url, config.key);
+  Logger.log('Total material_code en Supabase después de sync: ' + codesInSupabase.length);
+
+  // Comprobar PP128 con un GET directo (no depende del límite de la lista)
+  var checkOptions = {
+    method: 'get',
+    headers: {
+      'apikey': config.key,
+      'Authorization': 'Bearer ' + config.key,
+      'Accept': 'application/json'
+    },
+    muteHttpExceptions: true
+  };
+  var checkRes = UrlFetchApp.fetch(config.url + '/rest/v1/materials_catalog?material_code=eq.PP128&select=material_code', checkOptions);
+  var checkData = JSON.parse(checkRes.getContentText());
+  var pp128Exists = Array.isArray(checkData) && checkData.length > 0;
+  if (pp128Exists) {
+    Logger.log('PP128 está en Supabase.');
+  } else {
+    Logger.log('PP128 NO está en Supabase. Revisá que en la hoja "listener sr" la columna A tenga PP128 en alguna fila (sin espacios raros).');
+  }
 }

@@ -49,3 +49,24 @@ La vista de stock (codigo, nombre, tipo producto, stock, unidad) usa ese catálo
 - Convierte cada fila a un objeto `{ material_code, material_name, product_type, unit, active }`.
 - Hace **upsert** en `materials_catalog` por `material_code` (si existe actualiza, si no inserta).
 - Envía en lotes de 100 filas para no superar límites de la API.
+
+## 6. Diagnóstico: "el script corre pero no se refleja en la base" / "no veo PP128 en stock"
+
+**Dos cosas distintas:**
+
+1. **Catálogo (`materials_catalog`)**  
+   Lo llena el script de Google Sheets. Si PP128 está en la hoja "listener sr" (columna A) y el script corre bien, PP128 debería estar en esta tabla.
+
+2. **Vista de stock**  
+   Usa la vista `v_stock_overview_materiales`: une el catálogo con `jira_material_issues`. Solo muestra materiales que están en el catálogo **y** el número "stock" viene de Jira (issues tipo "materiales" con estado "En depósito"). Si PP128 está en el catálogo pero **no** hay ningún issue en Jira para PP128 con estado "En depósito", igual aparece en la vista con **stock = 0**.
+
+**Si el script “corre” pero no se agregan materiales:**
+
+- Revisá el **registro de ejecución** en Apps Script (Ver → Registro de ejecución). Después del cambio en el script verás líneas como "Filas leídas...", "Total material_code en Supabase después de sync" y "PP128 está / NO está en Supabase".
+- Comprobá **Propiedades del script**: `SUPABASE_URL` y `SUPABASE_SERVICE_ROLE_KEY` correctos (mismo proyecto que usa la app).
+- En Supabase **Table Editor** → `materials_catalog`: después de ejecutar el script, ¿aparecen filas? ¿Aparece PP128?
+- **RLS:** Si en Supabase tenés Row Level Security en `materials_catalog`, la policy debe permitir al `service_role` (o anon con la key que usás). Con `service_role` normalmente no aplica RLS.
+- El script ahora usa **upsert con `on_conflict=material_code`**; si fallaba antes por eso, con la versión actual debería persistir.
+
+**Si PP128 está en el catálogo pero no en la vista de stock:**  
+La vista filtra por `m.active = true`. Revisá en la hoja que la columna E (Activo) para esa fila no sea "No" / "N" / "0".

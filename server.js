@@ -90,19 +90,35 @@ async function jiraTransitionToEnDeposito(issueKey) {
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-async function supabaseFetch(path) {
-  const res = await fetch(`${SUPABASE_URL}${path}`, {
-    headers: {
-      apikey: SUPABASE_SERVICE_ROLE_KEY,
-      Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
-      Accept: "application/json",
-    },
-  });
+async function supabaseFetch(path, opts = {}) {
+  const headers = {
+    apikey: SUPABASE_SERVICE_ROLE_KEY,
+    Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+    Accept: "application/json",
+    ...opts.headers,
+  };
+  const res = await fetch(`${SUPABASE_URL}${path}`, { headers });
   const text = await res.text();
   let json = null;
   try { json = text ? JSON.parse(text) : null; } catch { /* ignore */ }
   if (!res.ok) throw new Error(`Supabase ${res.status}: ${text}`);
   return json;
+}
+
+/** Trae todas las filas de una vista/tabla paginando con Range (PostgREST limita 1000 por request). */
+async function supabaseFetchAll(path, pageSize = 1000, maxRows = 20000) {
+  const all = [];
+  let start = 0;
+  while (start < maxRows) {
+    const raw = await supabaseFetch(path, {
+      headers: { Range: `${start}-${start + pageSize - 1}` },
+    });
+    const rows = Array.isArray(raw) ? raw : [];
+    all.push(...rows);
+    if (rows.length < pageSize) break;
+    start += pageSize;
+  }
+  return all;
 }
 
 // ---------- Proyectos permitidos (mismo listado en issues y create) ----------
@@ -514,10 +530,9 @@ app.get("/api/stock", async (_req, res) => {
     if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
       return res.json({ items: [], _debug: "env_missing" });
     }
-    const raw = await supabaseFetch(
-      "/rest/v1/v_stock_overview_materiales?select=material_code,material_name,product_type,unit,on_hand&order=material_code.asc"
-    );
-    const rows = Array.isArray(raw) ? raw : [];
+    // PostgREST devuelve máx 1000 filas; paginamos para traer todos los materiales del catálogo
+    const path = "/rest/v1/v_stock_overview_materiales?select=material_code,material_name,product_type,unit,on_hand&order=material_code.asc";
+    const rows = await supabaseFetchAll(path);
     const items = rows.map((r) => ({
       material_code: r.material_code ?? "",
       material_name: r.material_name ?? "",
