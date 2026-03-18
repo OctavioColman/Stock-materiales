@@ -185,6 +185,63 @@ app.get("/api/issues", async (req, res) => {
   }
 });
 
+// ---------- Debug: búsqueda de actividades para modal Entregar (ver qué devuelve Jira) ----------
+app.get("/api/debug/issues", async (req, res) => {
+  const result = {
+    jql_used: ACTIVITY_ISSUE_TYPES_JQL,
+    jql_full: `${ACTIVITY_ISSUE_TYPES_JQL} ORDER BY updated DESC`,
+    projects: ALLOWED_PROJECT_KEYS,
+    picker_sample: null,
+    search_jql: null,
+    error: null,
+    issuetypes_in_projects: null,
+  };
+  try {
+    const query = (req.query.query || "").trim();
+    if (query) {
+      const params = new URLSearchParams({
+        query,
+        currentJQL: `${ACTIVITY_ISSUE_TYPES_JQL} ORDER BY updated DESC`,
+      });
+      const picker = await jiraFetch(`/rest/api/3/issue/picker?${params.toString()}`);
+      result.picker_sample = {
+        sections_count: (picker.sections || []).length,
+        sections: (picker.sections || []).map((s) => ({
+          label: s.label,
+          issues_count: (s.issues || []).length,
+          issues_sample: (s.issues || []).slice(0, 3).map((i) => ({ key: i.key, summary: i.summary || i.summaryText })),
+        })),
+      };
+    }
+    const data = await jiraFetch(
+      `/rest/api/3/search/jql?maxResults=20&startAt=0&fields=summary,issuetype,project,status&jql=${encodeURIComponent(result.jql_full)}`
+    );
+    result.search_jql = {
+      total: data.total,
+      startAt: data.startAt,
+      maxResults: data.maxResults,
+      issues_count: (data.issues || []).length,
+      issues_sample: (data.issues || []).slice(0, 10).map((i) => ({
+        key: i.key,
+        summary: i.fields?.summary,
+        issuetype: i.fields?.issuetype?.name,
+        project: i.fields?.project?.key,
+        status: i.fields?.status?.name,
+      })),
+    };
+    const meta = await jiraFetch(`/rest/api/3/issue/createmeta?projectKeys=${ALLOWED_PROJECT_KEYS.join(",")}&expand=projects.issuetypes`);
+    result.issuetypes_in_projects = (meta.projects || []).map((p) => ({
+      key: p.key,
+      name: p.name,
+      issuetypes: (p.issuetypes || []).map((t) => ({ id: t.id, name: t.name })),
+    }));
+  } catch (e) {
+    result.error = e.message;
+    result.stack = process.env.NODE_ENV === "development" ? e.stack : undefined;
+  }
+  res.json(result);
+});
+
 // ---------- Listar actividades tipo Factura / Factura electricidad (para modal Recibir) ----------
 app.get("/api/issues-facturas", async (req, res) => {
   try {
