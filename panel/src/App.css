@@ -115,6 +115,10 @@
   box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
 }
 
+.modal-content.modal-content--wide {
+  max-width: min(960px, 96vw);
+}
+
 .modal-header {
   display: flex;
   align-items: center;

@@ -76,12 +76,12 @@ function ThemeToggle({ theme, onToggle }) {
   );
 }
 
-// Modal genérico
-function Modal({ open, onClose, title, children }) {
+// Modal genérico (contentClassName: ej. "modal-content--wide" en App.css)
+function Modal({ open, onClose, title, children, contentClassName }) {
   if (!open) return null;
   return (
     <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose?.()}>
-      <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+      <div className={`modal-content${contentClassName ? ` ${contentClassName}` : ""}`} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2 className="modal-title">{title}</h2>
           <button type="button" className="modal-close" onClick={onClose} aria-label="Cerrar">×</button>
@@ -329,7 +329,7 @@ function FormularioCorreccion({ onClose, onSuccess }) {
   );
 }
 
-// Formulario Entregar: primero se elige la actividad; luego se listan materiales vinculados a ella y opcionalmente se añaden más (sin vincular a ningún epic).
+// Formulario Entregar: actividad (Problemas, Detalles o Epic) y materiales en depósito del mismo epic, en tabla.
 function FormularioConsumo({ onClose, onSuccess }) {
   const [issueQuery, setIssueQuery] = useState("");
   const [issueOptions, setIssueOptions] = useState([]);
@@ -344,20 +344,13 @@ function FormularioConsumo({ onClose, onSuccess }) {
   const [linkedActivities, setLinkedActivities] = useState([]);
   const [linkedLoading, setLinkedLoading] = useState(false);
   const [linkedError, setLinkedError] = useState("");
-  const [unlinkedActivities, setUnlinkedActivities] = useState([]);
-  const [unlinkedLoading, setUnlinkedLoading] = useState(false);
-  const [unlinkedError, setUnlinkedError] = useState("");
-  const [selectedUnlinkedKeys, setSelectedUnlinkedKeys] = useState([]);
   const [selectedLinkedKeys, setSelectedLinkedKeys] = useState([]);
-  const [unlinkedSearchQuery, setUnlinkedSearchQuery] = useState("");
   const [field10813Options, setField10813Options] = useState([]);
   const [field10813Loading, setField10813Loading] = useState(false);
   const [selectedField10813, setSelectedField10813] = useState("");
   const [field10813Hint, setField10813Hint] = useState("");
   const [consumoDebug, setConsumoDebug] = useState(null);
   const [linkedConsumptionByKey, setLinkedConsumptionByKey] = useState({});
-  const [unlinkedConsumptionByKey, setUnlinkedConsumptionByKey] = useState({});
-  const [consumptionValidationError, setConsumptionValidationError] = useState("");
 
   useEffect(() => {
     let alive = true;
@@ -451,73 +444,14 @@ function FormularioConsumo({ onClose, onSuccess }) {
     return () => { alive = false; };
   }, [linkKey]);
 
-  useEffect(() => {
-    if (!linkKey) {
-      setUnlinkedActivities([]);
-      setSelectedUnlinkedKeys([]);
-      setUnlinkedError("");
-      return;
-    }
-    let alive2 = true;
-    setUnlinkedLoading(true);
-    setUnlinkedError("");
-    setSelectedUnlinkedKeys([]);
-    setUnlinkedConsumptionByKey({});
-    apiFetch("/api/jira-material-en-deposito-all")
-      .then(({ ok, data }) => {
-        if (!alive2) return;
-        if (!ok && data?.error) setUnlinkedError(data.error);
-        else setUnlinkedError("");
-        setUnlinkedActivities(data?.issues || []);
-      })
-      .catch((e) => {
-        if (!alive2) return;
-        setUnlinkedError(e.message || "Error de conexión");
-        setUnlinkedActivities([]);
-      })
-      .finally(() => { if (alive2) setUnlinkedLoading(false); });
-    return () => { alive2 = false; };
-  }, [linkKey]);
-
-  function toggleUnlinkedKey(key) {
-    setSelectedUnlinkedKeys((prev) => prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]);
-  }
-
-  function toggleAllUnlinked() {
-    const keys = filteredUnlinked.map((a) => a.key);
-    const allSelected = keys.length > 0 && keys.every((k) => selectedUnlinkedKeys.includes(k));
-    if (allSelected) setSelectedUnlinkedKeys((prev) => prev.filter((k) => !keys.includes(k)));
-    else setSelectedUnlinkedKeys((prev) => [...new Set([...prev, ...keys])]);
-  }
-
   function toggleLinkedKey(key) {
     setSelectedLinkedKeys((prev) => prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]);
   }
   function setLinkedConsumption(key, value) {
     const n = value === "" ? "" : Number(value);
     setLinkedConsumptionByKey((prev) => (Number.isNaN(n) || n === "" ? { ...prev, [key]: value } : { ...prev, [key]: n }));
-    setConsumptionValidationError("");
   }
-  function setUnlinkedConsumption(key, value) {
-    const n = value === "" ? "" : Number(value);
-    setUnlinkedConsumptionByKey((prev) => (Number.isNaN(n) || n === "" ? { ...prev, [key]: value } : { ...prev, [key]: n }));
-    setConsumptionValidationError("");
-  }
-  const unlinkedExcludingSameEpic = useMemo(() => {
-    const linkedKeys = new Set((linkedActivities || []).map((a) => a.key));
-    return (unlinkedActivities || []).filter((a) => !linkedKeys.has(a.key));
-  }, [unlinkedActivities, linkedActivities]);
-  const filteredUnlinked = useMemo(() => {
-    const q = (unlinkedSearchQuery || "").trim().toLowerCase();
-    if (!q) return unlinkedExcludingSameEpic;
-    return unlinkedExcludingSameEpic.filter((a) => {
-      const code = (a.material_code || "").toLowerCase();
-      const name = (a.summary || "").toLowerCase();
-      return code.includes(q) || name.includes(q);
-    });
-  }, [unlinkedExcludingSameEpic, unlinkedSearchQuery]);
   const linkedActivitiesByKey = useMemo(() => Object.fromEntries((linkedActivities || []).map((a) => [a.key, a])), [linkedActivities]);
-  const unlinkedActivitiesByKey = useMemo(() => Object.fromEntries((unlinkedExcludingSameEpic || []).map((a) => [a.key, a])), [unlinkedExcludingSameEpic]);
   useEffect(() => {
     const activitiesByKey = Object.fromEntries((linkedActivities || []).map((a) => [a.key, a]));
     setLinkedConsumptionByKey((prev) => {
@@ -530,18 +464,6 @@ function FormularioConsumo({ onClose, onSuccess }) {
       return next;
     });
   }, [selectedLinkedKeys, linkedActivities]);
-  useEffect(() => {
-    const activitiesByKey = Object.fromEntries((unlinkedExcludingSameEpic || []).map((a) => [a.key, a]));
-    setUnlinkedConsumptionByKey((prev) => {
-      let next = { ...prev };
-      for (const key of selectedUnlinkedKeys) {
-        const act = activitiesByKey[key];
-        const maxQty = act?.quantity != null ? act.quantity : 0;
-        if (maxQty > 0 && (prev[key] == null || prev[key] === "")) next[key] = maxQty;
-      }
-      return next;
-    });
-  }, [selectedUnlinkedKeys, unlinkedExcludingSameEpic]);
 
   function toggleAllLinked() {
     if (selectedLinkedKeys.length === linkedActivities.length) setSelectedLinkedKeys([]);
@@ -549,7 +471,7 @@ function FormularioConsumo({ onClose, onSuccess }) {
   }
 
   const selectedIssue = selectedIssueDisplay || issueOptions.find((i) => i.key === linkKey);
-  const totalSelected = selectedLinkedKeys.length + selectedUnlinkedKeys.length;
+  const totalSelected = selectedLinkedKeys.length;
   const consumptionValid = useMemo(() => {
     for (const key of selectedLinkedKeys) {
       const act = linkedActivitiesByKey[key];
@@ -561,18 +483,8 @@ function FormularioConsumo({ onClose, onSuccess }) {
       if (Number.isNaN(n) || n <= 0) return { ok: false, key, msg: `La cantidad a entregar debe ser mayor a 0. En ${key} indicaste ${val}.` };
       if (n > maxQty) return { ok: false, key, msg: `No se puede entregar más de lo disponible. En ${key} la cantidad disponible es ${maxQty}. La cantidad del material nunca puede quedar menor a cero.` };
     }
-    for (const key of selectedUnlinkedKeys) {
-      const act = unlinkedActivitiesByKey[key];
-      const maxQty = act?.quantity != null ? act.quantity : 0;
-      const val = unlinkedConsumptionByKey[key];
-      const n = val === "" || val == null ? null : Number(val);
-      if (maxQty <= 0) return { ok: false, key, msg: `Cantidad disponible en ${key} no es válida.` };
-      if (n == null || n === "") return { ok: false, key, msg: `Indicá la cantidad a entregar para ${key}.` };
-      if (Number.isNaN(n) || n <= 0) return { ok: false, key, msg: `La cantidad a entregar debe ser mayor a 0. En ${key} indicaste ${val}.` };
-      if (n > maxQty) return { ok: false, key, msg: `No se puede entregar más de lo disponible. En ${key} la cantidad disponible es ${maxQty}. La cantidad del material nunca puede quedar menor a cero.` };
-    }
     return { ok: true };
-  }, [selectedLinkedKeys, selectedUnlinkedKeys, linkedActivitiesByKey, unlinkedActivitiesByKey, linkedConsumptionByKey, unlinkedConsumptionByKey]);
+  }, [selectedLinkedKeys, linkedActivitiesByKey, linkedConsumptionByKey]);
   const canCreate = useMemo(() => {
     if (!linkKey) return false;
     if (totalSelected === 0) return false;
@@ -582,7 +494,7 @@ function FormularioConsumo({ onClose, onSuccess }) {
   }, [linkKey, totalSelected, selectedField10813, consumptionValid.ok]);
 
   async function onVincular() {
-    const allKeys = [...selectedLinkedKeys, ...selectedUnlinkedKeys];
+    const allKeys = [...selectedLinkedKeys];
     setStatus("Vinculando y pasando a Entregado...");
     setConsumoDebug(null);
     try {
@@ -605,29 +517,18 @@ function FormularioConsumo({ onClose, onSuccess }) {
                 })
               )
             : undefined,
-          material_consumptions: (() => {
-            const linked = selectedLinkedKeys.length > 0 ? Object.fromEntries(
-              selectedLinkedKeys.map((k) => {
-                const act = linkedActivitiesByKey[k];
-                const maxQty = act?.quantity != null ? act.quantity : 0;
-                const val = linkedConsumptionByKey[k];
-                const n = val != null && val !== "" ? Number(val) : maxQty;
-                const clamped = Number.isNaN(n) ? maxQty : Math.min(maxQty, Math.max(0.001, n));
-                return [k, clamped];
-              })
-            ) : {};
-            const unlinked = selectedUnlinkedKeys.length > 0 ? Object.fromEntries(
-              selectedUnlinkedKeys.map((k) => {
-                const act = unlinkedActivitiesByKey[k];
-                const maxQty = act?.quantity != null ? act.quantity : 0;
-                const val = unlinkedConsumptionByKey[k];
-                const n = val != null && val !== "" ? Number(val) : maxQty;
-                const clamped = Number.isNaN(n) ? maxQty : Math.min(maxQty, Math.max(0.001, n));
-                return [k, clamped];
-              })
-            ) : {};
-            return { ...linked, ...unlinked };
-          })(),
+          material_consumptions: selectedLinkedKeys.length > 0
+            ? Object.fromEntries(
+                selectedLinkedKeys.map((k) => {
+                  const act = linkedActivitiesByKey[k];
+                  const maxQty = act?.quantity != null ? act.quantity : 0;
+                  const val = linkedConsumptionByKey[k];
+                  const n = val != null && val !== "" ? Number(val) : maxQty;
+                  const clamped = Number.isNaN(n) ? maxQty : Math.min(maxQty, Math.max(0.001, n));
+                  return [k, clamped];
+                })
+              )
+            : {},
         },
       });
       if (!ok) {
@@ -653,11 +554,9 @@ function FormularioConsumo({ onClose, onSuccess }) {
       setStatus(parts.length ? `✅ ${parts.join("; ")}.` : `✅ Listo.`);
       setLinkKey("");
       setSelectedIssueDisplay(null);
-      setSelectedUnlinkedKeys([]);
       setSelectedLinkedKeys([]);
       setConsumoDebug(null);
       setLinkedConsumptionByKey({});
-      setUnlinkedConsumptionByKey({});
       onSuccess?.();
     } catch (e) {
       setStatus(`❌ ${e.message}`);
@@ -723,118 +622,81 @@ function FormularioConsumo({ onClose, onSuccess }) {
           )}
         </div>
         {linkKey && (
-          <>
-            <div style={{ marginTop: 4 }}>
-              <label style={{ color: "var(--text-primary)", display: "block", marginBottom: 8, fontWeight: 600 }}>
-                materiales del Epic
-              </label>
-              <div style={{ fontSize: "0.8rem", color: "var(--text-secondary)", marginBottom: 6 }}>Si consumís menos que la cantidad total, se crea una actividad nueva (en el proyecto de la actividad seleccionada) y a la original se le resta lo consumido.</div>
-              {linkedLoading ? (
-                <div style={{ padding: 12, color: "var(--text-secondary)", fontSize: "0.9rem" }}>Cargando...</div>
-              ) : linkedError ? (
-                <div style={{ padding: 12, color: "var(--error)", fontSize: "0.9rem", border: "1px solid var(--border-color)", borderRadius: 6, background: "var(--input-bg)" }}>{linkedError}</div>
-              ) : linkedActivities.length === 0 ? (
-                <div style={{ padding: 12, color: "var(--text-secondary)", fontSize: "0.9rem", border: "1px solid var(--border-color)", borderRadius: 6, background: "var(--input-bg)" }}>No hay materiales en depósito en el mismo epic que esta actividad.</div>
-              ) : (
-                <>
-                  <div style={{ display: "flex", gap: 8, marginBottom: 8, alignItems: "center" }}>
-                    <button type="button" onClick={toggleAllLinked} style={{ padding: "4px 10px", fontSize: "0.85rem", border: "1px solid var(--border-color)", borderRadius: 6, background: "var(--input-bg)", color: "var(--text-primary)", cursor: "pointer" }}>
-                      {selectedLinkedKeys.length === linkedActivities.length ? "Deseleccionar todo" : "Seleccionar todo"}
-                    </button>
-                    <span style={{ fontSize: "0.85rem", color: "var(--text-secondary)" }}>{selectedLinkedKeys.length} de {linkedActivities.length} seleccionadas</span>
-                  </div>
-                  <div style={{ maxHeight: 180, overflowY: "auto", border: "1px solid var(--border-color)", borderRadius: 6, background: "var(--input-bg)" }}>
-                    {linkedActivities.map((a) => (
-                      <div key={a.key} style={{ borderBottom: "1px solid var(--border-color)", padding: "8px 10px" }}>
-                        <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }} onMouseEnter={(e) => { e.currentTarget.style.background = "var(--hover-bg)"; }} onMouseLeave={(e) => { e.currentTarget.style.background = ""; }}>
-                          <input type="checkbox" checked={selectedLinkedKeys.includes(a.key)} onChange={() => toggleLinkedKey(a.key)} />
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <div><strong>{a.key}</strong> — {a.summary}</div>
-                            <div style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>Código: {a.material_code || "—"} · Cantidad: {a.quantity ?? "—"} · Estado: {a.status}</div>
-                          </div>
-                        </label>
-                        {selectedLinkedKeys.includes(a.key) && (
-                          <div style={{ marginTop: 8, marginLeft: 26, display: "flex", alignItems: "center", gap: 8 }}>
-                            <label style={{ fontSize: "0.85rem", color: "var(--text-primary)" }}>
-                              Cantidad a entregar:
-                              <input
-                                type="number"
-                                min={0}
-                                step="any"
-                                max={a.quantity != null ? a.quantity : undefined}
-                                value={linkedConsumptionByKey[a.key] ?? a.quantity ?? ""}
-                                onChange={(e) => setLinkedConsumption(a.key, e.target.value)}
-                                style={{ width: 72, marginLeft: 6, padding: "4px 8px", borderRadius: 4, border: "1px solid var(--border-color)", background: "var(--input-bg)", color: "var(--text-primary)" }}
-                              />
-                            </label>
-                            <span style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>máx. {a.quantity ?? "—"}</span>
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </>
-              )}
-            </div>
-
-            <div style={{ marginTop: 8 }}>
-              <label style={{ color: "var(--text-primary)", display: "block", marginBottom: 8, fontWeight: 600 }}>
-                Añadir más material
-              </label>
-              <div style={{ fontSize: "0.8rem", color: "var(--text-secondary)", marginBottom: 6 }}>Si consumís menos que la cantidad total, se crea una actividad nueva con esa cantidad (en el proyecto de la actividad seleccionada) y a la original se le resta lo consumido.</div>
-              {unlinkedLoading ? (
-                <div style={{ padding: 12, color: "var(--text-secondary)", fontSize: "0.9rem" }}>Cargando...</div>
-              ) : unlinkedError ? (
-                <div style={{ padding: 12, color: "var(--error)", fontSize: "0.9rem", border: "1px solid var(--border-color)", borderRadius: 6, background: "var(--input-bg)" }}>{unlinkedError}</div>
-              ) : unlinkedExcludingSameEpic.length === 0 ? (
-                <div style={{ padding: 12, color: "var(--text-secondary)", fontSize: "0.9rem", border: "1px solid var(--border-color)", borderRadius: 6, background: "var(--input-bg)" }}>{unlinkedActivities.length === 0 ? "No hay materiales en depósito." : "Todos los materiales en depósito ya figuran en el mismo epic arriba."}</div>
-              ) : (
-                <>
-                  <input type="text" value={unlinkedSearchQuery} onChange={(e) => setUnlinkedSearchQuery(e.target.value)} placeholder="Buscar por código o nombre..." style={{ width: "100%", boxSizing: "border-box", marginBottom: 8, padding: "8px 10px", border: "1px solid var(--border-color)", borderRadius: 6, background: "var(--input-bg)", color: "var(--text-primary)", fontSize: "1rem" }} />
-                  <div style={{ display: "flex", gap: 8, marginBottom: 8, alignItems: "center" }}>
-                    <button type="button" onClick={toggleAllUnlinked} style={{ padding: "4px 10px", fontSize: "0.85rem", border: "1px solid var(--border-color)", borderRadius: 6, background: "var(--input-bg)", color: "var(--text-primary)", cursor: "pointer" }}>
-                      {filteredUnlinked.length > 0 && selectedUnlinkedKeys.filter((k) => filteredUnlinked.some((a) => a.key === k)).length === filteredUnlinked.length ? "Deseleccionar todo" : "Seleccionar todo"}
-                    </button>
-                    <span style={{ fontSize: "0.85rem", color: "var(--text-secondary)" }}>{selectedUnlinkedKeys.filter((k) => filteredUnlinked.some((a) => a.key === k)).length} de {filteredUnlinked.length} seleccionadas{filteredUnlinked.length !== unlinkedExcludingSameEpic.length ? ` (${unlinkedExcludingSameEpic.length} en total)` : ""}</span>
-                  </div>
-                  <div style={{ maxHeight: 200, overflowY: "auto", border: "1px solid var(--border-color)", borderRadius: 6, background: "var(--input-bg)" }}>
-                    {filteredUnlinked.length === 0 ? (
-                      <div style={{ padding: 12, color: "var(--text-secondary)", fontSize: "0.9rem" }}>Ningún material coincide con la búsqueda.</div>
-                    ) : (
-                      filteredUnlinked.map((a) => (
-                        <div key={a.key} style={{ borderBottom: "1px solid var(--border-color)", padding: "8px 10px" }}>
-                          <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }} onMouseEnter={(e) => { e.currentTarget.style.background = "var(--hover-bg)"; }} onMouseLeave={(e) => { e.currentTarget.style.background = ""; }}>
-                            <input type="checkbox" checked={selectedUnlinkedKeys.includes(a.key)} onChange={() => toggleUnlinkedKey(a.key)} />
-                            <div style={{ flex: 1, minWidth: 0 }}>
-                              <div><strong>{a.key}</strong> — {a.summary}</div>
-                              <div style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>Código: {a.material_code || "—"} · Cantidad: {a.quantity ?? "—"}</div>
-                            </div>
-                          </label>
-                          {selectedUnlinkedKeys.includes(a.key) && (
-                            <div style={{ marginTop: 8, marginLeft: 26, display: "flex", alignItems: "center", gap: 8 }}>
-                              <label style={{ fontSize: "0.85rem", color: "var(--text-primary)" }}>
-                                Cantidad a entregar:
+          <div style={{ marginTop: 4 }}>
+            <label style={{ color: "var(--text-primary)", display: "block", marginBottom: 8, fontWeight: 600 }}>
+              Materiales en depósito (mismo epic)
+            </label>
+            <div style={{ fontSize: "0.8rem", color: "var(--text-secondary)", marginBottom: 8 }}>Si entregás menos que la cantidad total, se crea una actividad nueva en el proyecto de la actividad seleccionada y a la original se le resta lo consumido.</div>
+            {linkedLoading ? (
+              <div style={{ padding: 12, color: "var(--text-secondary)", fontSize: "0.9rem" }}>Cargando...</div>
+            ) : linkedError ? (
+              <div style={{ padding: 12, color: "var(--error)", fontSize: "0.9rem", border: "1px solid var(--border-color)", borderRadius: 6, background: "var(--input-bg)" }}>{linkedError}</div>
+            ) : linkedActivities.length === 0 ? (
+              <div style={{ padding: 12, color: "var(--text-secondary)", fontSize: "0.9rem", border: "1px solid var(--border-color)", borderRadius: 6, background: "var(--input-bg)" }}>No hay materiales en depósito en el mismo epic que esta actividad.</div>
+            ) : (
+              <>
+                <div style={{ display: "flex", gap: 8, marginBottom: 8, alignItems: "center", flexWrap: "wrap" }}>
+                  <button type="button" onClick={toggleAllLinked} style={{ padding: "4px 10px", fontSize: "0.85rem", border: "1px solid var(--border-color)", borderRadius: 6, background: "var(--input-bg)", color: "var(--text-primary)", cursor: "pointer" }}>
+                    {selectedLinkedKeys.length === linkedActivities.length ? "Deseleccionar todo" : "Seleccionar todo"}
+                  </button>
+                  <span style={{ fontSize: "0.85rem", color: "var(--text-secondary)" }}>{selectedLinkedKeys.length} de {linkedActivities.length} seleccionados</span>
+                </div>
+                <div style={{ overflowX: "auto", maxHeight: "min(360px, 50vh)", overflowY: "auto", border: "1px solid var(--border-color)", borderRadius: 6, background: "var(--input-bg)" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.875rem" }}>
+                    <thead>
+                      <tr style={{ position: "sticky", top: 0, background: "var(--card-bg)", borderBottom: "2px solid var(--border-color)", zIndex: 1 }}>
+                        <th style={{ width: 44, padding: "10px 8px", textAlign: "center", color: "var(--text-secondary)", fontWeight: 600 }} title="Incluir">✓</th>
+                        <th style={{ padding: "10px 8px", textAlign: "left", color: "var(--text-secondary)", fontWeight: 600 }}>Clave</th>
+                        <th style={{ padding: "10px 8px", textAlign: "left", color: "var(--text-secondary)", fontWeight: 600, minWidth: 160 }}>Descripción</th>
+                        <th style={{ padding: "10px 8px", textAlign: "left", color: "var(--text-secondary)", fontWeight: 600, width: 110 }}>Código</th>
+                        <th style={{ padding: "10px 8px", textAlign: "right", color: "var(--text-secondary)", fontWeight: 600, width: 88 }}>En depósito</th>
+                        <th style={{ padding: "10px 8px", textAlign: "left", color: "var(--text-secondary)", fontWeight: 600, width: 120 }}>Estado</th>
+                        <th style={{ padding: "10px 8px", textAlign: "left", color: "var(--text-secondary)", fontWeight: 600, width: 130 }}>A entregar</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {linkedActivities.map((a) => {
+                        const sel = selectedLinkedKeys.includes(a.key);
+                        return (
+                          <tr
+                            key={a.key}
+                            style={{
+                              borderBottom: "1px solid var(--border-color)",
+                              background: sel ? "var(--hover-bg)" : "transparent",
+                            }}
+                          >
+                            <td style={{ padding: "8px", textAlign: "center", verticalAlign: "middle" }}>
+                              <input type="checkbox" checked={sel} onChange={() => toggleLinkedKey(a.key)} aria-label={`Seleccionar ${a.key}`} />
+                            </td>
+                            <td style={{ padding: "8px", verticalAlign: "middle", fontWeight: 600, color: "var(--text-primary)", whiteSpace: "nowrap" }}>{a.key}</td>
+                            <td style={{ padding: "8px", verticalAlign: "middle", color: "var(--text-primary)", wordBreak: "break-word" }}>{a.summary || "—"}</td>
+                            <td style={{ padding: "8px", verticalAlign: "middle", color: "var(--text-primary)", fontFamily: "ui-monospace, monospace" }}>{a.material_code || "—"}</td>
+                            <td style={{ padding: "8px", verticalAlign: "middle", textAlign: "right", color: "var(--text-primary)" }}>{a.quantity ?? "—"}</td>
+                            <td style={{ padding: "8px", verticalAlign: "middle", color: "var(--text-secondary)" }}>{a.status || "—"}</td>
+                            <td style={{ padding: "8px", verticalAlign: "middle" }}>
+                              {sel ? (
                                 <input
                                   type="number"
                                   min={0}
                                   step="any"
                                   max={a.quantity != null ? a.quantity : undefined}
-                                  value={unlinkedConsumptionByKey[a.key] ?? a.quantity ?? ""}
-                                  onChange={(e) => setUnlinkedConsumption(a.key, e.target.value)}
-                                  style={{ width: 72, marginLeft: 6, padding: "4px 8px", borderRadius: 4, border: "1px solid var(--border-color)", background: "var(--input-bg)", color: "var(--text-primary)" }}
+                                  value={linkedConsumptionByKey[a.key] ?? a.quantity ?? ""}
+                                  onChange={(e) => setLinkedConsumption(a.key, e.target.value)}
+                                  style={{ width: "100%", maxWidth: 112, boxSizing: "border-box", padding: "6px 8px", borderRadius: 4, border: "1px solid var(--border-color)", background: "var(--input-bg)", color: "var(--text-primary)" }}
                                 />
-                              </label>
-                              <span style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>máx. {a.quantity ?? "—"}</span>
-                            </div>
-                          )}
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </>
-              )}
-            </div>
-          </>
+                              ) : (
+                                <span style={{ color: "var(--text-secondary)" }}>—</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+          </div>
         )}
       </div>
       <div style={{ marginTop: 18, display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
@@ -1226,7 +1088,7 @@ function VistaStock() {
       <Modal open={openModal === "correccion"} onClose={() => setOpenModal(null)} title="Corregir stock">
         <FormularioCorreccion onClose={() => setOpenModal(null)} onSuccess={() => setOpenModal(null)} />
       </Modal>
-      <Modal open={openModal === "consumo"} onClose={() => setOpenModal(null)} title="Entregar material">
+      <Modal open={openModal === "consumo"} onClose={() => setOpenModal(null)} title="Entregar material" contentClassName="modal-content--wide">
         <FormularioConsumo onClose={() => setOpenModal(null)} onSuccess={() => setOpenModal(null)} />
       </Modal>
       <Modal open={openModal === "recibir"} onClose={() => setOpenModal(null)} title="Recibir material">

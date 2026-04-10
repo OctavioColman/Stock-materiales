@@ -132,7 +132,7 @@ app.get("/api/projects", (_req, res) => {
 // ---------- 1) Buscar actividades para vincular (Issue Picker + JQL search con nextPageToken) ----------
 const BASE_JQL = `project in (${ALLOWED_PROJECT_KEYS.join(",")})`;
 // Solo estos tipos para el selector de actividad en consumo
-const ACTIVITY_ISSUE_TYPES_JQL = `project in (${ALLOWED_PROJECT_KEYS.join(",")}) AND issuetype in ("Problema Mantenimiento", "Problema Electricidad", "Problema Jardinería", "Problema Infraestructura", "Detalle Mantenimiento", "Detalle Infraestructura", "Detalle Jardinería", "Detalle Electricidad", "Compra", "Epic")`;
+const ACTIVITY_ISSUE_TYPES_JQL = `project in (${ALLOWED_PROJECT_KEYS.join(",")}) AND issuetype in ("Problema Mantenimiento", "Problema Electricidad", "Problema Jardinería", "Problema Infraestructura", "Detalle Mantenimiento", "Detalle Infraestructura", "Detalle Jardinería", "Detalle Electricidad", "Epic")`;
 // Orden de compra para el modal Recibir (selector de actividad)
 const ORDEN_COMPRA_ISSUE_TYPES_JQL = `issuetype = "Orden de Compra"`;
 // Campo Sprint en Jira (suele ser customfield_10020; si no coincide, definir JIRA_SPRINT_FIELD en .env)
