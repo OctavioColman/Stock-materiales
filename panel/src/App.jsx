@@ -250,55 +250,91 @@ function FormularioCorreccion({ onClose, onSuccess }) {
     }
   }
 
-  const inputStyle = { width: "100%", background: "var(--input-bg)", color: "var(--text-primary)", border: "1px solid var(--border-color)", borderRadius: 6, padding: "8px 10px" };
   const dropdownZ = { zIndex: 1050 };
 
   return (
-    <div style={{ fontFamily: "system-ui" }}>
-      <div style={{ opacity: 0.85, color: "var(--text-secondary)", fontSize: "0.9rem", marginBottom: 16 }}>
-        La corrección crea una actividad de tipo &quot;materiales&quot; en Jira. Cantidad puede ser positiva o negativa. Vínculo con actividad opcional.
-      </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+    <div className="modal-sheet">
+      <section className="modal-sheet-section">
+        <p className="modal-sheet-section-hint" style={{ marginTop: 0 }}>Crea una issue tipo materiales en Jira. La cantidad puede ser positiva o negativa.</p>
+      </section>
+
+      <section className="modal-sheet-section">
+        <h3 className="modal-sheet-section-title">Código material</h3>
         <div style={{ position: "relative", ...dropdownZ }}>
-          <label style={{ color: "var(--text-primary)", display: "block", marginBottom: 4 }}>Código material *</label>
-          <input value={materialQuery} onChange={(e) => { setMaterialQuery(e.target.value); if (materialCode) setMaterialCode(""); }} placeholder="Escribí el código (ej: E084)" style={{ ...inputStyle, marginBottom: 0 }} autoComplete="off" />
+          <input
+            className="modal-sheet-control"
+            value={materialQuery}
+            onChange={(e) => { setMaterialQuery(e.target.value); if (materialCode) setMaterialCode(""); }}
+            placeholder="Ej. E084"
+            autoComplete="off"
+          />
           {showMaterialSuggestions && (
-            <ul style={{ listStyle: "none", margin: 0, padding: "4px 0", border: "1px solid var(--border-color)", borderRadius: 4, background: "var(--input-bg)", maxHeight: 200, overflowY: "auto", position: "relative", boxShadow: "0 4px 12px rgba(0,0,0,0.15)" }}>
+            <ul className="modal-sheet-suggest-list">
               {materialOptions.map((m) => (
-                <li key={m.material_code} onClick={() => { setMaterialCode(m.material_code); setMaterialQuery(m.material_code); setSummary(m.material_name || ""); }} style={{ padding: "8px 10px", cursor: "pointer", borderBottom: "1px solid var(--border-color)" }} onMouseEnter={(e) => { e.currentTarget.style.background = "var(--hover-bg)"; }} onMouseLeave={(e) => { e.currentTarget.style.background = ""; }}>
-                  <strong>{m.material_code}</strong> — {m.material_name} {m.product_type ? ` · ${m.product_type}` : ""}
+                <li
+                  key={m.material_code}
+                  className="modal-sheet-suggest-item"
+                  onClick={() => { setMaterialCode(m.material_code); setMaterialQuery(m.material_code); setSummary(m.material_name || ""); }}
+                >
+                  <strong>{m.material_code}</strong>
+                  <span style={{ color: "var(--text-secondary)", marginLeft: 6 }}>{m.material_name}{m.product_type ? ` · ${m.product_type}` : ""}</span>
                 </li>
               ))}
             </ul>
           )}
         </div>
-        <div>
-          <label style={{ color: "var(--text-primary)", display: "block", marginBottom: 4 }}>Nombre de material *</label>
-          <input value={summary} onChange={(e) => setSummary(e.target.value)} style={inputStyle} />
-        </div>
-        <div>
-          <label style={{ color: "var(--text-primary)", display: "block", marginBottom: 4 }}>Cantidad material *</label>
-          <input value={quantity} onChange={(e) => setQuantity(e.target.value)} placeholder="ej: -3 o 5" style={inputStyle} />
-        </div>
+      </section>
+
+      <section className="modal-sheet-section">
+        <h3 className="modal-sheet-section-title">Nombre</h3>
+        <input className="modal-sheet-control" value={summary} onChange={(e) => setSummary(e.target.value)} />
+      </section>
+
+      <section className="modal-sheet-section">
+        <h3 className="modal-sheet-section-title">Cantidad</h3>
+        <input className="modal-sheet-control" value={quantity} onChange={(e) => setQuantity(e.target.value)} placeholder="Ej. -3 o 5" />
+      </section>
+
+      <section className="modal-sheet-section">
+        <h3 className="modal-sheet-section-title">Vincular actividad</h3>
+        <p className="modal-sheet-section-hint" style={{ marginTop: 0 }}>Opcional.</p>
         <div ref={issueDropdownRef} style={{ position: "relative", ...dropdownZ }}>
-          <label style={{ color: "var(--text-primary)", display: "block", marginBottom: 4 }}>Vincular con actividad (opcional)</label>
-          <button type="button" onClick={() => setIssueDropdownOpen((o) => !o)} style={{ width: "100%", padding: "8px 12px", textAlign: "left", border: "1px solid var(--border-color)", borderRadius: 6, background: "var(--input-bg)", color: "var(--text-primary)", cursor: "pointer", fontSize: "1em" }}>
-            {linkKey && selectedIssue ? `${selectedIssue.key} — ${selectedIssue.summary}` : "Seleccionar actividad"}
+          <button type="button" className="modal-sheet-control modal-sheet-control--trigger" onClick={() => setIssueDropdownOpen((o) => !o)}>
+            {linkKey && selectedIssue ? `${selectedIssue.key} — ${selectedIssue.summary}` : "Buscar y seleccionar"}
           </button>
           {issueDropdownOpen && (
-            <div style={{ position: "absolute", top: "100%", left: 0, right: 0, marginTop: 4, border: "1px solid var(--border-color)", borderRadius: 6, background: "var(--input-bg)", boxShadow: "0 4px 12px rgba(0,0,0,0.15)", overflow: "hidden" }}>
-              <input ref={issueSearchInputRef} type="text" value={issueQuery} onChange={(e) => setIssueQuery(e.target.value)} placeholder="Buscar..." style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px", border: "none", borderBottom: "1px solid var(--border-color)", outline: "none", background: "var(--input-bg)", color: "var(--text-primary)" }} onKeyDown={(e) => e.stopPropagation()} />
-              <ul style={{ listStyle: "none", margin: 0, padding: 0, maxHeight: 220, overflowY: "auto" }}>
-                {issueOptions.length === 0 ? <li style={{ padding: "12px 10px", color: "var(--text-secondary)" }}>{issueQuery.trim() ? "No hay coincidencias" : "Escribí para buscar"}</li> : (
+            <div className="modal-sheet-dropdown">
+              <input
+                ref={issueSearchInputRef}
+                className="modal-sheet-control"
+                style={{ borderRadius: 0, borderWidth: "0 0 1px 0" }}
+                type="text"
+                value={issueQuery}
+                onChange={(e) => setIssueQuery(e.target.value)}
+                placeholder="Buscar…"
+                onKeyDown={(e) => e.stopPropagation()}
+              />
+              <ul className="modal-sheet-dropdown-list">
+                {issueOptions.length === 0 ? (
+                  <li className="modal-sheet-dropdown-empty">{issueQuery.trim() ? "Sin coincidencias" : "Escribí para buscar"}</li>
+                ) : (
                   <>
                     {issueOptions.map((i) => (
-                      <li key={i.key} onClick={() => { setLinkKey(i.key); setSelectedIssueDisplay(i); setIssueDropdownOpen(false); }} style={{ padding: "8px 10px", cursor: "pointer", borderBottom: "1px solid var(--border-color)" }} onMouseEnter={(e) => { e.currentTarget.style.background = "var(--hover-bg)"; }} onMouseLeave={(e) => { e.currentTarget.style.background = ""; }}>
-                        {i.key} — {i.summary} [{i.project}]
+                      <li
+                        key={i.key}
+                        className="modal-sheet-dropdown-item"
+                        onClick={() => { setLinkKey(i.key); setSelectedIssueDisplay(i); setIssueDropdownOpen(false); }}
+                      >
+                        <span className="modal-sheet-dropdown-key">{i.key}</span>
+                        <span className="modal-sheet-dropdown-summary">{i.summary}</span>
+                        <span className="modal-sheet-dropdown-proj">{i.project}</span>
                       </li>
                     ))}
                     {issueNextPageToken && !issueQuery.trim() && (
-                      <li style={{ padding: 8, borderTop: "1px solid var(--border-color)" }}>
-                        <button type="button" onClick={(e) => { e.stopPropagation(); loadMoreIssues(); }} disabled={issueLoadingMore} style={{ width: "100%", padding: "6px", background: "var(--input-bg)", color: "var(--text-primary)", border: "1px solid var(--border-color)" }}>{issueLoadingMore ? "Cargando…" : "Cargar más"}</button>
+                      <li className="modal-sheet-dropdown-more">
+                        <button type="button" className="modal-sheet-btn-ghost" style={{ width: "100%" }} onClick={(e) => { e.stopPropagation(); loadMoreIssues(); }} disabled={issueLoadingMore}>
+                          {issueLoadingMore ? "Cargando…" : "Cargar más"}
+                        </button>
                       </li>
                     )}
                   </>
@@ -307,24 +343,25 @@ function FormularioCorreccion({ onClose, onSuccess }) {
             </div>
           )}
         </div>
-      </div>
-      <div style={{ marginTop: 18, display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-        {successResult ? (
-          <>
-            <button type="button" onClick={() => { setSuccessResult(null); setStatus(""); onSuccess?.(); }} style={{ background: "var(--btn-bg)", color: "var(--btn-text)", border: "1px solid var(--border-color)", padding: "8px 16px", borderRadius: 8 }}>Cerrar</button>
-            <span style={{ color: "var(--text-primary)" }}>{status}</span>
-            {successResult.browse_url && (
-              <a href={successResult.browse_url} target="_blank" rel="noopener noreferrer" style={{ color: "var(--btn-bg)", textDecoration: "underline" }}>Abrir en Jira</a>
-            )}
-          </>
-        ) : (
-          <>
-            <button disabled={!canCreate} onClick={onCreate} style={{ background: "var(--btn-bg)", color: "var(--btn-text)", border: "1px solid var(--border-color)", padding: "8px 16px", borderRadius: 8 }}>Crear</button>
-            {onClose && <button type="button" onClick={onClose} style={{ padding: "8px 16px", borderRadius: 8, border: "1px solid var(--border-color)", background: "var(--input-bg)", color: "var(--text-primary)" }}>Cancelar</button>}
-            <span style={{ color: "var(--text-secondary)" }}>{status}</span>
-          </>
-        )}
-      </div>
+      </section>
+
+      {successResult ? (
+        <footer className="modal-sheet-footer">
+          <button type="button" className="modal-sheet-btn-primary" onClick={() => { setSuccessResult(null); setStatus(""); onSuccess?.(); }}>Cerrar</button>
+          <span className="modal-sheet-footer-status" style={{ color: "var(--text-primary)" }}>{status}</span>
+          {successResult.browse_url && (
+            <p className="modal-sheet-hint-link" style={{ margin: 0 }}>
+              <a href={successResult.browse_url} target="_blank" rel="noopener noreferrer">Abrir en Jira</a>
+            </p>
+          )}
+        </footer>
+      ) : (
+        <footer className="modal-sheet-footer">
+          <button type="button" className="modal-sheet-btn-primary" disabled={!canCreate} onClick={onCreate}>Crear</button>
+          {onClose && <button type="button" className="modal-sheet-btn-secondary" onClick={onClose}>Cancelar</button>}
+          {status && <span className="modal-sheet-footer-status">{status}</span>}
+        </footer>
+      )}
     </div>
   );
 }
@@ -567,22 +604,22 @@ function FormularioConsumo({ onClose, onSuccess }) {
   const dropdownZ = { zIndex: 1050 };
 
   return (
-    <div className="entregar-form">
-      <section className="entregar-section">
-        <h3 className="entregar-section-title">Actividad</h3>
+    <div className="modal-sheet">
+      <section className="modal-sheet-section">
+        <h3 className="modal-sheet-section-title">Actividad</h3>
         <div ref={issueDropdownRef} style={{ position: "relative", ...dropdownZ }}>
           <button
             type="button"
-            className="entregar-control entregar-control--trigger"
+            className="modal-sheet-control modal-sheet-control--trigger"
             onClick={() => setIssueDropdownOpen((o) => !o)}
           >
             {linkKey && selectedIssue ? `${selectedIssue.key} — ${selectedIssue.summary}` : "Buscar y seleccionar"}
           </button>
           {issueDropdownOpen && (
-            <div className="entregar-dropdown">
+            <div className="modal-sheet-dropdown">
               <input
                 ref={issueSearchInputRef}
-                className="entregar-control"
+                className="modal-sheet-control"
                 style={{ borderRadius: 0, borderWidth: "0 0 1px 0" }}
                 type="text"
                 value={issueQuery}
@@ -590,25 +627,25 @@ function FormularioConsumo({ onClose, onSuccess }) {
                 placeholder="Buscar…"
                 onKeyDown={(e) => e.stopPropagation()}
               />
-              <ul className="entregar-dropdown-list">
+              <ul className="modal-sheet-dropdown-list">
                 {issueOptions.length === 0 ? (
-                  <li className="entregar-dropdown-empty">{issueQuery.trim() ? "Sin coincidencias" : "Escribí para buscar"}</li>
+                  <li className="modal-sheet-dropdown-empty">{issueQuery.trim() ? "Sin coincidencias" : "Escribí para buscar"}</li>
                 ) : (
                   <>
                     {issueOptions.map((i) => (
                       <li
                         key={i.key}
-                        className="entregar-dropdown-item"
+                        className="modal-sheet-dropdown-item"
                         onClick={() => { setLinkKey(i.key); setSelectedIssueDisplay(i); setIssueDropdownOpen(false); }}
                       >
-                        <span className="entregar-dropdown-key">{i.key}</span>
-                        <span className="entregar-dropdown-summary">{i.summary}</span>
-                        <span className="entregar-dropdown-proj">{i.project}</span>
+                        <span className="modal-sheet-dropdown-key">{i.key}</span>
+                        <span className="modal-sheet-dropdown-summary">{i.summary}</span>
+                        <span className="modal-sheet-dropdown-proj">{i.project}</span>
                       </li>
                     ))}
                     {issueNextPageToken && !issueQuery.trim() && (
-                      <li className="entregar-dropdown-more">
-                        <button type="button" className="entregar-btn-ghost" style={{ width: "100%" }} onClick={(e) => { e.stopPropagation(); loadMoreIssues(); }} disabled={issueLoadingMore}>
+                      <li className="modal-sheet-dropdown-more">
+                        <button type="button" className="modal-sheet-btn-ghost" style={{ width: "100%" }} onClick={(e) => { e.stopPropagation(); loadMoreIssues(); }} disabled={issueLoadingMore}>
                           {issueLoadingMore ? "Cargando…" : "Cargar más"}
                         </button>
                       </li>
@@ -621,20 +658,20 @@ function FormularioConsumo({ onClose, onSuccess }) {
         </div>
       </section>
 
-      <section className="entregar-section">
-        <h3 className="entregar-section-title">Personal</h3>
+      <section className="modal-sheet-section">
+        <h3 className="modal-sheet-section-title">Personal</h3>
         {field10813Loading ? (
-          <p className="entregar-section-hint" style={{ marginBottom: 0 }}>Cargando…</p>
+          <p className="modal-sheet-section-hint" style={{ marginBottom: 0 }}>Cargando…</p>
         ) : (
           <>
-            <select className="entregar-control" value={selectedField10813} onChange={(e) => setSelectedField10813(e.target.value)}>
+            <select className="modal-sheet-control" value={selectedField10813} onChange={(e) => setSelectedField10813(e.target.value)}>
               <option value="">Quién entrega</option>
               {field10813Options.map((opt) => (
                 <option key={opt.id} value={opt.id}>{opt.name || opt.value || opt.id}</option>
               ))}
             </select>
             {field10813Hint && (
-              <p className="entregar-section-hint entregar-hint-link">
+              <p className="modal-sheet-section-hint modal-sheet-hint-link">
                 {field10813Hint}{" "}
                 <a href={`${API_BASE || (typeof window !== "undefined" ? window.location.origin : "")}/api/debug/jira-field-10813`} target="_blank" rel="noopener noreferrer">Diagnóstico</a>
               </p>
@@ -644,32 +681,32 @@ function FormularioConsumo({ onClose, onSuccess }) {
       </section>
 
       {linkKey && (
-        <section className="entregar-section">
-          <h3 className="entregar-section-title">Materiales en depósito</h3>
-          <p className="entregar-section-hint">Mismo epic que la actividad. Si entregás menos que el total, el resto queda en una issue nueva.</p>
+        <section className="modal-sheet-section">
+          <h3 className="modal-sheet-section-title">Materiales en depósito</h3>
+          <p className="modal-sheet-section-hint">Mismo epic que la actividad. Si entregás menos que el total, el resto queda en una issue nueva.</p>
           {linkedLoading ? (
-            <div className="entregar-placeholder">Cargando…</div>
+            <div className="modal-sheet-placeholder">Cargando…</div>
           ) : linkedError ? (
-            <div className="entregar-placeholder entregar-placeholder--error">{linkedError}</div>
+            <div className="modal-sheet-placeholder modal-sheet-placeholder--error">{linkedError}</div>
           ) : linkedActivities.length === 0 ? (
-            <div className="entregar-placeholder">No hay materiales en depósito en este epic.</div>
+            <div className="modal-sheet-placeholder">No hay materiales en depósito en este epic.</div>
           ) : (
             <>
-              <div className="entregar-toolbar">
-                <button type="button" className="entregar-btn-ghost" onClick={toggleAllLinked}>
+              <div className="modal-sheet-toolbar">
+                <button type="button" className="modal-sheet-btn-ghost" onClick={toggleAllLinked}>
                   {selectedLinkedKeys.length === linkedActivities.length ? "Deseleccionar todo" : "Seleccionar todo"}
                 </button>
-                <span className="entregar-toolbar-meta">{selectedLinkedKeys.length} / {linkedActivities.length}</span>
+                <span className="modal-sheet-toolbar-meta">{selectedLinkedKeys.length} / {linkedActivities.length}</span>
               </div>
-              <div className="entregar-table-wrap">
-                <table className="entregar-table">
+              <div className="modal-sheet-table-wrap">
+                <table className="modal-sheet-table">
                   <thead>
                     <tr>
-                      <th className="entregar-cell-check" title="Seleccionar filas"><span className="entregar-th-dim">Sel.</span></th>
+                      <th className="modal-sheet-cell-check" title="Seleccionar filas"><span className="modal-sheet-th-dim">Sel.</span></th>
                       <th>Clave</th>
                       <th>Descripción</th>
                       <th>Código</th>
-                      <th className="entregar-cell-num">Depósito</th>
+                      <th className="modal-sheet-cell-num">Depósito</th>
                       <th>Estado</th>
                       <th>A entregar</th>
                     </tr>
@@ -678,20 +715,20 @@ function FormularioConsumo({ onClose, onSuccess }) {
                     {linkedActivities.map((a) => {
                       const sel = selectedLinkedKeys.includes(a.key);
                       return (
-                        <tr key={a.key} className={sel ? "entregar-row--selected" : undefined}>
-                          <td className="entregar-cell-check">
+                        <tr key={a.key} className={sel ? "modal-sheet-row--selected" : undefined}>
+                          <td className="modal-sheet-cell-check">
                             <input type="checkbox" checked={sel} onChange={() => toggleLinkedKey(a.key)} aria-label={`Seleccionar ${a.key}`} />
                           </td>
-                          <td className="entregar-cell-key">{a.key}</td>
+                          <td className="modal-sheet-cell-key">{a.key}</td>
                           <td>{a.summary || "—"}</td>
-                          <td className="entregar-cell-mono">{a.material_code || "—"}</td>
-                          <td className="entregar-cell-num">{a.quantity ?? "—"}</td>
+                          <td className="modal-sheet-cell-mono">{a.material_code || "—"}</td>
+                          <td className="modal-sheet-cell-num">{a.quantity ?? "—"}</td>
                           <td style={{ color: "var(--text-secondary)" }}>{a.status || "—"}</td>
                           <td>
                             {sel ? (
                               <input
                                 type="number"
-                                className="entregar-qty-input"
+                                className="modal-sheet-qty-input"
                                 min={0}
                                 step="any"
                                 max={a.quantity != null ? a.quantity : undefined}
@@ -713,19 +750,19 @@ function FormularioConsumo({ onClose, onSuccess }) {
         </section>
       )}
 
-      <footer className="entregar-footer">
-        <button type="button" className="entregar-btn-primary" disabled={!canCreate} onClick={onVincular}>Entregar</button>
+      <footer className="modal-sheet-footer">
+        <button type="button" className="modal-sheet-btn-primary" disabled={!canCreate} onClick={onVincular}>Entregar</button>
         {onClose && (
-          <button type="button" className="entregar-btn-secondary" onClick={onClose}>Cancelar</button>
+          <button type="button" className="modal-sheet-btn-secondary" onClick={onClose}>Cancelar</button>
         )}
         {!consumptionValid.ok && consumptionValid.msg && (
-          <span className="entregar-footer-status entregar-footer-status--error">{consumptionValid.msg}</span>
+          <span className="modal-sheet-footer-status modal-sheet-footer-status--error">{consumptionValid.msg}</span>
         )}
-        {status && <span className="entregar-footer-status">{status}</span>}
+        {status && <span className="modal-sheet-footer-status">{status}</span>}
       </footer>
 
       {consumoDebug != null && (
-        <div className="entregar-debug">
+        <div className="modal-sheet-debug">
           <div>Log de debug</div>
           <pre>{JSON.stringify(consumoDebug, null, 2)}</pre>
         </div>
@@ -861,27 +898,46 @@ function FormularioRecibir({ onClose, onSuccess }) {
 
   const dropdownZ = { zIndex: 1050 };
   return (
-    <div style={{ fontFamily: "system-ui" }}>
-      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+    <div className="modal-sheet">
+      <section className="modal-sheet-section">
+        <h3 className="modal-sheet-section-title">Orden de compra</h3>
         <div ref={issueDropdownRef} style={{ position: "relative", ...dropdownZ }}>
-          <label style={{ color: "var(--text-primary)", display: "block", marginBottom: 4 }}>Orden de compra *</label>
-          <button type="button" onClick={() => setIssueDropdownOpen((o) => !o)} style={{ width: "100%", padding: "8px 12px", textAlign: "left", border: "1px solid var(--border-color)", borderRadius: 6, background: "var(--input-bg)", color: "var(--text-primary)", cursor: "pointer", fontSize: "1em" }}>
-            {ordenCompraKey && selectedOrdenCompra ? `${selectedOrdenCompra.key} — ${selectedOrdenCompra.summary}` : "Buscar y seleccionar orden de compra"}
+          <button type="button" className="modal-sheet-control modal-sheet-control--trigger" onClick={() => setIssueDropdownOpen((o) => !o)}>
+            {ordenCompraKey && selectedOrdenCompra ? `${selectedOrdenCompra.key} — ${selectedOrdenCompra.summary}` : "Buscar y seleccionar"}
           </button>
           {issueDropdownOpen && (
-            <div style={{ position: "absolute", top: "100%", left: 0, right: 0, marginTop: 4, border: "1px solid var(--border-color)", borderRadius: 6, background: "var(--input-bg)", boxShadow: "0 4px 12px rgba(0,0,0,0.15)", overflow: "hidden" }}>
-              <input ref={issueSearchInputRef} type="text" value={issueQuery} onChange={(e) => setIssueQuery(e.target.value)} placeholder="Buscar..." style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px", border: "none", borderBottom: "1px solid var(--border-color)", outline: "none", background: "var(--input-bg)", color: "var(--text-primary)" }} onKeyDown={(e) => e.stopPropagation()} />
-              <ul style={{ listStyle: "none", margin: 0, padding: 0, maxHeight: 220, overflowY: "auto" }}>
-                {issueOptions.length === 0 ? <li style={{ padding: "12px 10px", color: "var(--text-secondary)" }}>{issueQuery.trim() ? "No hay coincidencias" : "Escribí para buscar"}</li> : (
+            <div className="modal-sheet-dropdown">
+              <input
+                ref={issueSearchInputRef}
+                className="modal-sheet-control"
+                style={{ borderRadius: 0, borderWidth: "0 0 1px 0" }}
+                type="text"
+                value={issueQuery}
+                onChange={(e) => setIssueQuery(e.target.value)}
+                placeholder="Buscar…"
+                onKeyDown={(e) => e.stopPropagation()}
+              />
+              <ul className="modal-sheet-dropdown-list">
+                {issueOptions.length === 0 ? (
+                  <li className="modal-sheet-dropdown-empty">{issueQuery.trim() ? "Sin coincidencias" : "Escribí para buscar"}</li>
+                ) : (
                   <>
                     {issueOptions.map((i) => (
-                      <li key={i.key} onClick={() => { setOrdenCompraKey(i.key); setSelectedOrdenCompraDisplay(i); setIssueDropdownOpen(false); }} style={{ padding: "8px 10px", cursor: "pointer", borderBottom: "1px solid var(--border-color)" }} onMouseEnter={(e) => { e.currentTarget.style.background = "var(--hover-bg)"; }} onMouseLeave={(e) => { e.currentTarget.style.background = ""; }}>
-                        {i.key} — {i.summary} [{i.project}]
+                      <li
+                        key={i.key}
+                        className="modal-sheet-dropdown-item"
+                        onClick={() => { setOrdenCompraKey(i.key); setSelectedOrdenCompraDisplay(i); setIssueDropdownOpen(false); }}
+                      >
+                        <span className="modal-sheet-dropdown-key">{i.key}</span>
+                        <span className="modal-sheet-dropdown-summary">{i.summary}</span>
+                        <span className="modal-sheet-dropdown-proj">{i.project}</span>
                       </li>
                     ))}
                     {issueNextPageToken && !issueQuery.trim() && (
-                      <li style={{ padding: 8, borderTop: "1px solid var(--border-color)" }}>
-                        <button type="button" onClick={(e) => { e.stopPropagation(); loadMoreIssues(); }} disabled={issueLoadingMore} style={{ width: "100%", padding: "6px", background: "var(--input-bg)", color: "var(--text-primary)", border: "1px solid var(--border-color)" }}>{issueLoadingMore ? "Cargando…" : "Cargar más"}</button>
+                      <li className="modal-sheet-dropdown-more">
+                        <button type="button" className="modal-sheet-btn-ghost" style={{ width: "100%" }} onClick={(e) => { e.stopPropagation(); loadMoreIssues(); }} disabled={issueLoadingMore}>
+                          {issueLoadingMore ? "Cargando…" : "Cargar más"}
+                        </button>
                       </li>
                     )}
                   </>
@@ -890,49 +946,70 @@ function FormularioRecibir({ onClose, onSuccess }) {
             </div>
           )}
         </div>
-        <div style={{ fontSize: "0.85rem", marginTop: -4 }}>
-          <a href={`${API_BASE || (typeof window !== "undefined" ? window.location.origin : "")}/api/debug/issues-orden-compra`} target="_blank" rel="noopener noreferrer" style={{ color: "var(--text-secondary)" }}>Diagnóstico órdenes de compra (Jira)</a>
-        </div>
-        {ordenCompraKey && (
-          <div style={{ marginTop: 4 }}>
-            <label style={{ color: "var(--text-primary)", display: "block", marginBottom: 8, fontWeight: 600 }}>
-              Materiales en el mismo sprint que la orden de compra
-            </label>
-            {materialsLoading ? (
-              <div style={{ padding: 12, color: "var(--text-secondary)", fontSize: "0.9rem" }}>Cargando...</div>
-            ) : materialsError ? (
-              <div style={{ padding: 12, color: "var(--error)", fontSize: "0.9rem", border: "1px solid var(--border-color)", borderRadius: 6, background: "var(--input-bg)" }}>{materialsError}</div>
-            ) : materials.length === 0 ? (
-              <div style={{ padding: 12, color: "var(--text-secondary)", fontSize: "0.9rem", border: "1px solid var(--border-color)", borderRadius: 6, background: "var(--input-bg)" }}>No hay materiales de tipo &quot;materiales&quot; en el mismo sprint, o la orden no tiene sprint asignado.</div>
-            ) : (
-              <>
-                <div style={{ display: "flex", gap: 8, marginBottom: 8, alignItems: "center" }}>
-                  <button type="button" onClick={toggleAll} style={{ padding: "4px 10px", fontSize: "0.85rem", border: "1px solid var(--border-color)", borderRadius: 6, background: "var(--input-bg)", color: "var(--text-primary)", cursor: "pointer" }}>
-                    {selectedKeys.length === materials.length ? "Deseleccionar todo" : "Seleccionar todo"}
-                  </button>
-                  <span style={{ fontSize: "0.85rem", color: "var(--text-secondary)" }}>{selectedKeys.length} de {materials.length} seleccionados</span>
-                </div>
-                <div style={{ maxHeight: 220, overflowY: "auto", border: "1px solid var(--border-color)", borderRadius: 6, background: "var(--input-bg)" }}>
-                  {materials.map((a) => (
-                    <label key={a.key} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderBottom: "1px solid var(--border-color)", cursor: "pointer" }} onMouseEnter={(e) => { e.currentTarget.style.background = "var(--hover-bg)"; }} onMouseLeave={(e) => { e.currentTarget.style.background = ""; }}>
-                      <input type="checkbox" checked={selectedKeys.includes(a.key)} onChange={() => toggleKey(a.key)} />
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div><strong>{a.key}</strong> — {a.summary}</div>
-                        <div style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>Código: {a.material_code || "—"} · Cantidad: {a.quantity ?? "—"} · Estado: {a.status}</div>
-                      </div>
-                    </label>
-                  ))}
-                </div>
-              </>
-            )}
-          </div>
-        )}
-      </div>
-      <div style={{ marginTop: 18, display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-        <button disabled={!canRecibir} onClick={onRecibir} style={{ background: "var(--btn-bg)", color: "var(--btn-text)", border: "1px solid var(--border-color)", padding: "8px 16px", borderRadius: 8 }}>Recibir</button>
-        {onClose && <button type="button" onClick={onClose} style={{ padding: "8px 16px", borderRadius: 8, border: "1px solid var(--border-color)", background: "var(--input-bg)", color: "var(--text-primary)" }}>Cancelar</button>}
-        <span style={{ color: "var(--text-secondary)" }}>{status}</span>
-      </div>
+        <p className="modal-sheet-section-hint modal-sheet-hint-link" style={{ marginBottom: 0 }}>
+          <a href={`${API_BASE || (typeof window !== "undefined" ? window.location.origin : "")}/api/debug/issues-orden-compra`} target="_blank" rel="noopener noreferrer">Diagnóstico Jira</a>
+        </p>
+      </section>
+
+      {ordenCompraKey && (
+        <section className="modal-sheet-section">
+          <h3 className="modal-sheet-section-title">Materiales (mismo sprint)</h3>
+          <p className="modal-sheet-section-hint">Tipo materiales vinculados al sprint de la orden.</p>
+          {materialsLoading ? (
+            <div className="modal-sheet-placeholder">Cargando…</div>
+          ) : materialsError ? (
+            <div className="modal-sheet-placeholder modal-sheet-placeholder--error">{materialsError}</div>
+          ) : materials.length === 0 ? (
+            <div className="modal-sheet-placeholder">No hay materiales en el sprint o la orden sin sprint.</div>
+          ) : (
+            <>
+              <div className="modal-sheet-toolbar">
+                <button type="button" className="modal-sheet-btn-ghost" onClick={toggleAll}>
+                  {selectedKeys.length === materials.length ? "Deseleccionar todo" : "Seleccionar todo"}
+                </button>
+                <span className="modal-sheet-toolbar-meta">{selectedKeys.length} / {materials.length}</span>
+              </div>
+              <div className="modal-sheet-table-wrap">
+                <table className="modal-sheet-table">
+                  <thead>
+                    <tr>
+                      <th className="modal-sheet-cell-check" title="Seleccionar"><span className="modal-sheet-th-dim">Sel.</span></th>
+                      <th>Clave</th>
+                      <th>Descripción</th>
+                      <th>Código</th>
+                      <th className="modal-sheet-cell-num">Cantidad</th>
+                      <th>Estado</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {materials.map((a) => {
+                      const sel = selectedKeys.includes(a.key);
+                      return (
+                        <tr key={a.key} className={sel ? "modal-sheet-row--selected" : undefined}>
+                          <td className="modal-sheet-cell-check">
+                            <input type="checkbox" checked={sel} onChange={() => toggleKey(a.key)} aria-label={`Seleccionar ${a.key}`} />
+                          </td>
+                          <td className="modal-sheet-cell-key">{a.key}</td>
+                          <td>{a.summary || "—"}</td>
+                          <td className="modal-sheet-cell-mono">{a.material_code || "—"}</td>
+                          <td className="modal-sheet-cell-num">{a.quantity ?? "—"}</td>
+                          <td style={{ color: "var(--text-secondary)" }}>{a.status || "—"}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+        </section>
+      )}
+
+      <footer className="modal-sheet-footer">
+        <button type="button" className="modal-sheet-btn-primary" disabled={!canRecibir} onClick={onRecibir}>Recibir</button>
+        {onClose && <button type="button" className="modal-sheet-btn-secondary" onClick={onClose}>Cancelar</button>}
+        {status && <span className="modal-sheet-footer-status">{status}</span>}
+      </footer>
     </div>
   );
 }
@@ -1100,13 +1177,13 @@ function VistaStock() {
         </button>
       </div>
 
-      <Modal open={openModal === "correccion"} onClose={() => setOpenModal(null)} title="Corregir stock">
+      <Modal open={openModal === "correccion"} onClose={() => setOpenModal(null)} title="Corregir stock" contentClassName="modal-content--wide modal-content--sheet" bodyClassName="modal-body--compact">
         <FormularioCorreccion onClose={() => setOpenModal(null)} onSuccess={() => setOpenModal(null)} />
       </Modal>
-      <Modal open={openModal === "consumo"} onClose={() => setOpenModal(null)} title="Entregar material" contentClassName="modal-content--wide modal-content--entregar" bodyClassName="modal-body--compact">
+      <Modal open={openModal === "consumo"} onClose={() => setOpenModal(null)} title="Entregar material" contentClassName="modal-content--wide modal-content--sheet" bodyClassName="modal-body--compact">
         <FormularioConsumo onClose={() => setOpenModal(null)} onSuccess={() => setOpenModal(null)} />
       </Modal>
-      <Modal open={openModal === "recibir"} onClose={() => setOpenModal(null)} title="Recibir material">
+      <Modal open={openModal === "recibir"} onClose={() => setOpenModal(null)} title="Recibir material" contentClassName="modal-content--wide modal-content--sheet" bodyClassName="modal-body--compact">
         <FormularioRecibir onClose={() => setOpenModal(null)} onSuccess={() => setOpenModal(null)} />
       </Modal>
     </div>

@@ -12,13 +12,13 @@
   --btn-bg: #f7fafc;
   --btn-text: #1a202c;
   --error: #c53030;
-  /* Superficies modal Entregar (tabla más oscura que el fondo del modal) */
-  --entregar-section-rule: #e2e8f0;
-  --entregar-table-bg: #eef2f7;
-  --entregar-thead-bg: #d8e0ea;
-  --entregar-table-border: #c5cdd8;
-  --entregar-row-alt: #e8edf4;
-  --entregar-row-selected: #dde8f4;
+  /* Superficies modales stock (tabla más oscura que el fondo del modal) */
+  --modal-sheet-section-rule: #e2e8f0;
+  --modal-sheet-table-bg: #eef2f7;
+  --modal-sheet-thead-bg: #d8e0ea;
+  --modal-sheet-table-border: #c5cdd8;
+  --modal-sheet-row-alt: #e8edf4;
+  --modal-sheet-row-selected: #dde8f4;
 }
 
 [data-theme="dark"] {
@@ -34,12 +34,12 @@
   --btn-bg: #4a5568;
   --btn-text: #e2e8f0;
   --error: #fc8181;
-  --entregar-section-rule: #374151;
-  --entregar-table-bg: #1f2933;
-  --entregar-thead-bg: #151c24;
-  --entregar-table-border: #3d4d60;
-  --entregar-row-alt: #232f3d;
-  --entregar-row-selected: #2a3a4d;
+  --modal-sheet-section-rule: #374151;
+  --modal-sheet-table-bg: #1f2933;
+  --modal-sheet-thead-bg: #151c24;
+  --modal-sheet-table-border: #3d4d60;
+  --modal-sheet-row-alt: #232f3d;
+  --modal-sheet-row-selected: #2a3a4d;
 }
 
 :root {
@@ -66,12 +66,12 @@
   --btn-bg: #f7fafc;
   --btn-text: #1a202c;
   --error: #c53030;
-  --entregar-section-rule: #e2e8f0;
-  --entregar-table-bg: #eef2f7;
-  --entregar-thead-bg: #d8e0ea;
-  --entregar-table-border: #c5cdd8;
-  --entregar-row-alt: #e8edf4;
-  --entregar-row-selected: #dde8f4;
+  --modal-sheet-section-rule: #e2e8f0;
+  --modal-sheet-table-bg: #eef2f7;
+  --modal-sheet-thead-bg: #d8e0ea;
+  --modal-sheet-table-border: #c5cdd8;
+  --modal-sheet-row-alt: #e8edf4;
+  --modal-sheet-row-selected: #dde8f4;
 }
 
 body {
