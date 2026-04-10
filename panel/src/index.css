@@ -12,6 +12,13 @@
   --btn-bg: #f7fafc;
   --btn-text: #1a202c;
   --error: #c53030;
+  /* Superficies modal Entregar (tabla más oscura que el fondo del modal) */
+  --entregar-section-rule: #e2e8f0;
+  --entregar-table-bg: #eef2f7;
+  --entregar-thead-bg: #d8e0ea;
+  --entregar-table-border: #c5cdd8;
+  --entregar-row-alt: #e8edf4;
+  --entregar-row-selected: #dde8f4;
 }
 
 [data-theme="dark"] {
@@ -27,6 +34,12 @@
   --btn-bg: #4a5568;
   --btn-text: #e2e8f0;
   --error: #fc8181;
+  --entregar-section-rule: #374151;
+  --entregar-table-bg: #1f2933;
+  --entregar-thead-bg: #151c24;
+  --entregar-table-border: #3d4d60;
+  --entregar-row-alt: #232f3d;
+  --entregar-row-selected: #2a3a4d;
 }
 
 :root {
@@ -53,6 +66,12 @@
   --btn-bg: #f7fafc;
   --btn-text: #1a202c;
   --error: #c53030;
+  --entregar-section-rule: #e2e8f0;
+  --entregar-table-bg: #eef2f7;
+  --entregar-thead-bg: #d8e0ea;
+  --entregar-table-border: #c5cdd8;
+  --entregar-row-alt: #e8edf4;
+  --entregar-row-selected: #dde8f4;
 }
 
 body {

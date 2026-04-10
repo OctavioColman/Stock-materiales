@@ -76,8 +76,8 @@ function ThemeToggle({ theme, onToggle }) {
   );
 }
 
-// Modal genérico (contentClassName: ej. "modal-content--wide" en App.css)
-function Modal({ open, onClose, title, children, contentClassName }) {
+// Modal genérico (contentClassName: ej. "modal-content--wide"; bodyClassName: ej. "modal-body--compact")
+function Modal({ open, onClose, title, children, contentClassName, bodyClassName }) {
   if (!open) return null;
   return (
     <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose?.()}>
@@ -86,7 +86,7 @@ function Modal({ open, onClose, title, children, contentClassName }) {
           <h2 className="modal-title">{title}</h2>
           <button type="button" className="modal-close" onClick={onClose} aria-label="Cerrar">×</button>
         </div>
-        <div className="modal-body">{children}</div>
+        <div className={`modal-body${bodyClassName ? ` ${bodyClassName}` : ""}`}>{children}</div>
       </div>
     </div>
   );
@@ -564,31 +564,53 @@ function FormularioConsumo({ onClose, onSuccess }) {
     }
   }
 
-  const inputStyle = { width: "100%", background: "var(--input-bg)", color: "var(--text-primary)", border: "1px solid var(--border-color)", borderRadius: 6, padding: "8px 10px" };
   const dropdownZ = { zIndex: 1050 };
 
   return (
-    <div style={{ fontFamily: "system-ui" }}>
-      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+    <div className="entregar-form">
+      <section className="entregar-section">
+        <h3 className="entregar-section-title">Actividad</h3>
         <div ref={issueDropdownRef} style={{ position: "relative", ...dropdownZ }}>
-          <label style={{ color: "var(--text-primary)", display: "block", marginBottom: 4 }}>Actividad *</label>
-          <button type="button" onClick={() => setIssueDropdownOpen((o) => !o)} style={{ width: "100%", padding: "8px 12px", textAlign: "left", border: "1px solid var(--border-color)", borderRadius: 6, background: "var(--input-bg)", color: "var(--text-primary)", cursor: "pointer", fontSize: "1em" }}>
-            {linkKey && selectedIssue ? `${selectedIssue.key} — ${selectedIssue.summary}` : "Buscar y seleccionar actividad"}
+          <button
+            type="button"
+            className="entregar-control entregar-control--trigger"
+            onClick={() => setIssueDropdownOpen((o) => !o)}
+          >
+            {linkKey && selectedIssue ? `${selectedIssue.key} — ${selectedIssue.summary}` : "Buscar y seleccionar"}
           </button>
           {issueDropdownOpen && (
-            <div style={{ position: "absolute", top: "100%", left: 0, right: 0, marginTop: 4, border: "1px solid var(--border-color)", borderRadius: 6, background: "var(--input-bg)", boxShadow: "0 4px 12px rgba(0,0,0,0.15)", overflow: "hidden" }}>
-              <input ref={issueSearchInputRef} type="text" value={issueQuery} onChange={(e) => setIssueQuery(e.target.value)} placeholder="Buscar..." style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px", border: "none", borderBottom: "1px solid var(--border-color)", outline: "none", background: "var(--input-bg)", color: "var(--text-primary)" }} onKeyDown={(e) => e.stopPropagation()} />
-              <ul style={{ listStyle: "none", margin: 0, padding: 0, maxHeight: 220, overflowY: "auto" }}>
-                {issueOptions.length === 0 ? <li style={{ padding: "12px 10px", color: "var(--text-secondary)" }}>{issueQuery.trim() ? "No hay coincidencias" : "Escribí para buscar"}</li> : (
+            <div className="entregar-dropdown">
+              <input
+                ref={issueSearchInputRef}
+                className="entregar-control"
+                style={{ borderRadius: 0, borderWidth: "0 0 1px 0" }}
+                type="text"
+                value={issueQuery}
+                onChange={(e) => setIssueQuery(e.target.value)}
+                placeholder="Buscar…"
+                onKeyDown={(e) => e.stopPropagation()}
+              />
+              <ul className="entregar-dropdown-list">
+                {issueOptions.length === 0 ? (
+                  <li className="entregar-dropdown-empty">{issueQuery.trim() ? "Sin coincidencias" : "Escribí para buscar"}</li>
+                ) : (
                   <>
                     {issueOptions.map((i) => (
-                      <li key={i.key} onClick={() => { setLinkKey(i.key); setSelectedIssueDisplay(i); setIssueDropdownOpen(false); }} style={{ padding: "8px 10px", cursor: "pointer", borderBottom: "1px solid var(--border-color)" }} onMouseEnter={(e) => { e.currentTarget.style.background = "var(--hover-bg)"; }} onMouseLeave={(e) => { e.currentTarget.style.background = ""; }}>
-                        {i.key} — {i.summary} [{i.project}]
+                      <li
+                        key={i.key}
+                        className="entregar-dropdown-item"
+                        onClick={() => { setLinkKey(i.key); setSelectedIssueDisplay(i); setIssueDropdownOpen(false); }}
+                      >
+                        <span className="entregar-dropdown-key">{i.key}</span>
+                        <span className="entregar-dropdown-summary">{i.summary}</span>
+                        <span className="entregar-dropdown-proj">{i.project}</span>
                       </li>
                     ))}
                     {issueNextPageToken && !issueQuery.trim() && (
-                      <li style={{ padding: 8, borderTop: "1px solid var(--border-color)" }}>
-                        <button type="button" onClick={(e) => { e.stopPropagation(); loadMoreIssues(); }} disabled={issueLoadingMore} style={{ width: "100%", padding: "6px", background: "var(--input-bg)", color: "var(--text-primary)", border: "1px solid var(--border-color)" }}>{issueLoadingMore ? "Cargando…" : "Cargar más"}</button>
+                      <li className="entregar-dropdown-more">
+                        <button type="button" className="entregar-btn-ghost" style={{ width: "100%" }} onClick={(e) => { e.stopPropagation(); loadMoreIssues(); }} disabled={issueLoadingMore}>
+                          {issueLoadingMore ? "Cargando…" : "Cargar más"}
+                        </button>
                       </li>
                     )}
                   </>
@@ -597,122 +619,115 @@ function FormularioConsumo({ onClose, onSuccess }) {
             </div>
           )}
         </div>
-        <div style={{ marginTop: 8 }}>
-          <label style={{ color: "var(--text-primary)", display: "block", marginBottom: 4 }}>
-            Personal *
-          </label>
-          {field10813Loading ? (
-            <span style={{ fontSize: "0.9rem", color: "var(--text-secondary)" }}>Cargando opciones...</span>
+      </section>
+
+      <section className="entregar-section">
+        <h3 className="entregar-section-title">Personal</h3>
+        {field10813Loading ? (
+          <p className="entregar-section-hint" style={{ marginBottom: 0 }}>Cargando…</p>
+        ) : (
+          <>
+            <select className="entregar-control" value={selectedField10813} onChange={(e) => setSelectedField10813(e.target.value)}>
+              <option value="">Quién entrega</option>
+              {field10813Options.map((opt) => (
+                <option key={opt.id} value={opt.id}>{opt.name || opt.value || opt.id}</option>
+              ))}
+            </select>
+            {field10813Hint && (
+              <p className="entregar-section-hint entregar-hint-link">
+                {field10813Hint}{" "}
+                <a href={`${API_BASE || (typeof window !== "undefined" ? window.location.origin : "")}/api/debug/jira-field-10813`} target="_blank" rel="noopener noreferrer">Diagnóstico</a>
+              </p>
+            )}
+          </>
+        )}
+      </section>
+
+      {linkKey && (
+        <section className="entregar-section">
+          <h3 className="entregar-section-title">Materiales en depósito</h3>
+          <p className="entregar-section-hint">Mismo epic que la actividad. Si entregás menos que el total, el resto queda en una issue nueva.</p>
+          {linkedLoading ? (
+            <div className="entregar-placeholder">Cargando…</div>
+          ) : linkedError ? (
+            <div className="entregar-placeholder entregar-placeholder--error">{linkedError}</div>
+          ) : linkedActivities.length === 0 ? (
+            <div className="entregar-placeholder">No hay materiales en depósito en este epic.</div>
           ) : (
             <>
-              <select value={selectedField10813} onChange={(e) => setSelectedField10813(e.target.value)} style={{ width: "100%", padding: "8px 10px", border: "1px solid var(--border-color)", borderRadius: 6, background: "var(--input-bg)", color: "var(--text-primary)", fontSize: "1rem" }}>
-                <option value="">Seleccionar personal</option>
-                {field10813Options.map((opt) => (
-                  <option key={opt.id} value={opt.id}>{opt.name || opt.value || opt.id}</option>
-                ))}
-              </select>
-              {field10813Hint && (
-                <div style={{ marginTop: 6, fontSize: "0.85rem", color: "var(--text-secondary)" }}>
-                  {field10813Hint}
-                  {" "}
-                  <a href={`${API_BASE || (typeof window !== "undefined" ? window.location.origin : "")}/api/debug/jira-field-10813`} target="_blank" rel="noopener noreferrer">Diagnóstico (abrir en nueva pestaña)</a>
-                </div>
-              )}
+              <div className="entregar-toolbar">
+                <button type="button" className="entregar-btn-ghost" onClick={toggleAllLinked}>
+                  {selectedLinkedKeys.length === linkedActivities.length ? "Deseleccionar todo" : "Seleccionar todo"}
+                </button>
+                <span className="entregar-toolbar-meta">{selectedLinkedKeys.length} / {linkedActivities.length}</span>
+              </div>
+              <div className="entregar-table-wrap">
+                <table className="entregar-table">
+                  <thead>
+                    <tr>
+                      <th className="entregar-cell-check" title="Seleccionar filas"><span className="entregar-th-dim">Sel.</span></th>
+                      <th>Clave</th>
+                      <th>Descripción</th>
+                      <th>Código</th>
+                      <th className="entregar-cell-num">Depósito</th>
+                      <th>Estado</th>
+                      <th>A entregar</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {linkedActivities.map((a) => {
+                      const sel = selectedLinkedKeys.includes(a.key);
+                      return (
+                        <tr key={a.key} className={sel ? "entregar-row--selected" : undefined}>
+                          <td className="entregar-cell-check">
+                            <input type="checkbox" checked={sel} onChange={() => toggleLinkedKey(a.key)} aria-label={`Seleccionar ${a.key}`} />
+                          </td>
+                          <td className="entregar-cell-key">{a.key}</td>
+                          <td>{a.summary || "—"}</td>
+                          <td className="entregar-cell-mono">{a.material_code || "—"}</td>
+                          <td className="entregar-cell-num">{a.quantity ?? "—"}</td>
+                          <td style={{ color: "var(--text-secondary)" }}>{a.status || "—"}</td>
+                          <td>
+                            {sel ? (
+                              <input
+                                type="number"
+                                className="entregar-qty-input"
+                                min={0}
+                                step="any"
+                                max={a.quantity != null ? a.quantity : undefined}
+                                value={linkedConsumptionByKey[a.key] ?? a.quantity ?? ""}
+                                onChange={(e) => setLinkedConsumption(a.key, e.target.value)}
+                              />
+                            ) : (
+                              <span style={{ color: "var(--text-secondary)" }}>—</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             </>
           )}
-        </div>
-        {linkKey && (
-          <div style={{ marginTop: 4 }}>
-            <label style={{ color: "var(--text-primary)", display: "block", marginBottom: 8, fontWeight: 600 }}>
-              Materiales en depósito (mismo epic)
-            </label>
-            <div style={{ fontSize: "0.8rem", color: "var(--text-secondary)", marginBottom: 8 }}>Si entregás menos que la cantidad total, se crea una actividad nueva en el proyecto de la actividad seleccionada y a la original se le resta lo consumido.</div>
-            {linkedLoading ? (
-              <div style={{ padding: 12, color: "var(--text-secondary)", fontSize: "0.9rem" }}>Cargando...</div>
-            ) : linkedError ? (
-              <div style={{ padding: 12, color: "var(--error)", fontSize: "0.9rem", border: "1px solid var(--border-color)", borderRadius: 6, background: "var(--input-bg)" }}>{linkedError}</div>
-            ) : linkedActivities.length === 0 ? (
-              <div style={{ padding: 12, color: "var(--text-secondary)", fontSize: "0.9rem", border: "1px solid var(--border-color)", borderRadius: 6, background: "var(--input-bg)" }}>No hay materiales en depósito en el mismo epic que esta actividad.</div>
-            ) : (
-              <>
-                <div style={{ display: "flex", gap: 8, marginBottom: 8, alignItems: "center", flexWrap: "wrap" }}>
-                  <button type="button" onClick={toggleAllLinked} style={{ padding: "4px 10px", fontSize: "0.85rem", border: "1px solid var(--border-color)", borderRadius: 6, background: "var(--input-bg)", color: "var(--text-primary)", cursor: "pointer" }}>
-                    {selectedLinkedKeys.length === linkedActivities.length ? "Deseleccionar todo" : "Seleccionar todo"}
-                  </button>
-                  <span style={{ fontSize: "0.85rem", color: "var(--text-secondary)" }}>{selectedLinkedKeys.length} de {linkedActivities.length} seleccionados</span>
-                </div>
-                <div style={{ overflowX: "auto", maxHeight: "min(360px, 50vh)", overflowY: "auto", border: "1px solid var(--border-color)", borderRadius: 6, background: "var(--input-bg)" }}>
-                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.875rem" }}>
-                    <thead>
-                      <tr style={{ position: "sticky", top: 0, background: "var(--card-bg)", borderBottom: "2px solid var(--border-color)", zIndex: 1 }}>
-                        <th style={{ width: 44, padding: "10px 8px", textAlign: "center", color: "var(--text-secondary)", fontWeight: 600 }} title="Incluir">✓</th>
-                        <th style={{ padding: "10px 8px", textAlign: "left", color: "var(--text-secondary)", fontWeight: 600 }}>Clave</th>
-                        <th style={{ padding: "10px 8px", textAlign: "left", color: "var(--text-secondary)", fontWeight: 600, minWidth: 160 }}>Descripción</th>
-                        <th style={{ padding: "10px 8px", textAlign: "left", color: "var(--text-secondary)", fontWeight: 600, width: 110 }}>Código</th>
-                        <th style={{ padding: "10px 8px", textAlign: "right", color: "var(--text-secondary)", fontWeight: 600, width: 88 }}>En depósito</th>
-                        <th style={{ padding: "10px 8px", textAlign: "left", color: "var(--text-secondary)", fontWeight: 600, width: 120 }}>Estado</th>
-                        <th style={{ padding: "10px 8px", textAlign: "left", color: "var(--text-secondary)", fontWeight: 600, width: 130 }}>A entregar</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {linkedActivities.map((a) => {
-                        const sel = selectedLinkedKeys.includes(a.key);
-                        return (
-                          <tr
-                            key={a.key}
-                            style={{
-                              borderBottom: "1px solid var(--border-color)",
-                              background: sel ? "var(--hover-bg)" : "transparent",
-                            }}
-                          >
-                            <td style={{ padding: "8px", textAlign: "center", verticalAlign: "middle" }}>
-                              <input type="checkbox" checked={sel} onChange={() => toggleLinkedKey(a.key)} aria-label={`Seleccionar ${a.key}`} />
-                            </td>
-                            <td style={{ padding: "8px", verticalAlign: "middle", fontWeight: 600, color: "var(--text-primary)", whiteSpace: "nowrap" }}>{a.key}</td>
-                            <td style={{ padding: "8px", verticalAlign: "middle", color: "var(--text-primary)", wordBreak: "break-word" }}>{a.summary || "—"}</td>
-                            <td style={{ padding: "8px", verticalAlign: "middle", color: "var(--text-primary)", fontFamily: "ui-monospace, monospace" }}>{a.material_code || "—"}</td>
-                            <td style={{ padding: "8px", verticalAlign: "middle", textAlign: "right", color: "var(--text-primary)" }}>{a.quantity ?? "—"}</td>
-                            <td style={{ padding: "8px", verticalAlign: "middle", color: "var(--text-secondary)" }}>{a.status || "—"}</td>
-                            <td style={{ padding: "8px", verticalAlign: "middle" }}>
-                              {sel ? (
-                                <input
-                                  type="number"
-                                  min={0}
-                                  step="any"
-                                  max={a.quantity != null ? a.quantity : undefined}
-                                  value={linkedConsumptionByKey[a.key] ?? a.quantity ?? ""}
-                                  onChange={(e) => setLinkedConsumption(a.key, e.target.value)}
-                                  style={{ width: "100%", maxWidth: 112, boxSizing: "border-box", padding: "6px 8px", borderRadius: 4, border: "1px solid var(--border-color)", background: "var(--input-bg)", color: "var(--text-primary)" }}
-                                />
-                              ) : (
-                                <span style={{ color: "var(--text-secondary)" }}>—</span>
-                              )}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </>
-            )}
-          </div>
+        </section>
+      )}
+
+      <footer className="entregar-footer">
+        <button type="button" className="entregar-btn-primary" disabled={!canCreate} onClick={onVincular}>Entregar</button>
+        {onClose && (
+          <button type="button" className="entregar-btn-secondary" onClick={onClose}>Cancelar</button>
         )}
-      </div>
-      <div style={{ marginTop: 18, display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-        <button disabled={!canCreate} onClick={onVincular} style={{ background: "var(--btn-bg)", color: "var(--btn-text)", border: "1px solid var(--border-color)", padding: "8px 16px", borderRadius: 8 }}>Entregar seleccionados</button>
-        {onClose && <button type="button" onClick={onClose} style={{ padding: "8px 16px", borderRadius: 8, border: "1px solid var(--border-color)", background: "var(--input-bg)", color: "var(--text-primary)" }}>Cancelar</button>}
         {!consumptionValid.ok && consumptionValid.msg && (
-          <span style={{ color: "var(--error)", fontSize: "0.9rem" }}>{consumptionValid.msg}</span>
+          <span className="entregar-footer-status entregar-footer-status--error">{consumptionValid.msg}</span>
         )}
-        <span style={{ color: "var(--text-secondary)" }}>{status}</span>
-      </div>
+        {status && <span className="entregar-footer-status">{status}</span>}
+      </footer>
+
       {consumoDebug != null && (
-        <div style={{ marginTop: 16, border: "1px solid var(--border-color)", borderRadius: 8, overflow: "hidden", background: "var(--input-bg)" }}>
-          <div style={{ padding: "8px 12px", fontWeight: 600, color: "var(--text-primary)", borderBottom: "1px solid var(--border-color)" }}>Log de debug</div>
-          <pre style={{ margin: 0, padding: 12, fontSize: "0.8rem", overflow: "auto", maxHeight: 320, color: "var(--text-primary)", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
-            {JSON.stringify(consumoDebug, null, 2)}
-          </pre>
+        <div className="entregar-debug">
+          <div>Log de debug</div>
+          <pre>{JSON.stringify(consumoDebug, null, 2)}</pre>
         </div>
       )}
     </div>
@@ -1088,7 +1103,7 @@ function VistaStock() {
       <Modal open={openModal === "correccion"} onClose={() => setOpenModal(null)} title="Corregir stock">
         <FormularioCorreccion onClose={() => setOpenModal(null)} onSuccess={() => setOpenModal(null)} />
       </Modal>
-      <Modal open={openModal === "consumo"} onClose={() => setOpenModal(null)} title="Entregar material" contentClassName="modal-content--wide">
+      <Modal open={openModal === "consumo"} onClose={() => setOpenModal(null)} title="Entregar material" contentClassName="modal-content--wide modal-content--entregar" bodyClassName="modal-body--compact">
         <FormularioConsumo onClose={() => setOpenModal(null)} onSuccess={() => setOpenModal(null)} />
       </Modal>
       <Modal open={openModal === "recibir"} onClose={() => setOpenModal(null)} title="Recibir material">
