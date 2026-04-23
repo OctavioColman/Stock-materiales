@@ -1763,8 +1763,42 @@ app.post("/api/jira-material-create", async (req, res) => {
     payload.fields[cfStockField] = JIRA_PANOL_STOCK_OPTION_ID
       ? { id: String(JIRA_PANOL_STOCK_OPTION_ID) }
       : { value: JIRA_PANOL_STOCK_LABEL };
-    if (cf11145) payload.fields.customfield_11145 = cf11145;
-    if (cf11144) payload.fields.customfield_11144 = cf11144;
+    if (cf11145) {
+      // Jira espera Atlassian Document Format (ADF) para este campo.
+      payload.fields.customfield_11145 = {
+        type: "doc",
+        version: 1,
+        content: [
+          {
+            type: "paragraph",
+            content: [{ type: "text", text: cf11145 }],
+          },
+        ],
+      };
+    }
+    if (cf11144) {
+      // Este campo es select list: debe enviarse como objeto { id } o { name }.
+      let selectValue = null;
+      try {
+        const parsed = JSON.parse(cf11144);
+        if (parsed && typeof parsed === "object") {
+          if (parsed.id != null && String(parsed.id).trim() !== "") {
+            selectValue = { id: String(parsed.id).trim() };
+          } else if (parsed.name != null && String(parsed.name).trim() !== "") {
+            selectValue = { name: String(parsed.name).trim() };
+          } else if (parsed.value != null && String(parsed.value).trim() !== "") {
+            selectValue = { name: String(parsed.value).trim() };
+          }
+        }
+      } catch {
+        // si no es JSON válido, seguir con fallback por texto
+      }
+      if (!selectValue) {
+        const raw = String(cf11144).trim();
+        selectValue = /^\d+$/.test(raw) ? { id: raw } : { name: raw };
+      }
+      payload.fields.customfield_11144 = selectValue;
+    }
 
     const created = await jiraFetch(`/rest/api/3/issue`, { method: "POST", body: payload });
     const newKey = created?.key;
