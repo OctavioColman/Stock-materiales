@@ -61,6 +61,81 @@ async function jiraFetch(path, { method = "GET", body } = {}) {
   return json;
 }
 
+function normalizeText(value) {
+  return String(value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+}
+
+async function jiraListFieldOptions(fieldId) {
+  const contextsRes = await jiraFetch(`/rest/api/3/field/${fieldId}/context`).catch(() => ({}));
+  const contexts = Array.isArray(contextsRes) ? contextsRes : (contextsRes?.values ?? contextsRes?.results ?? []);
+  const out = [];
+  for (const ctx of contexts) {
+    const ctxId = ctx?.id;
+    if (!ctxId) continue;
+    try {
+      const optsRes = await jiraFetch(`/rest/api/3/field/${fieldId}/context/${ctxId}/option?maxResults=500`);
+      const opts = optsRes?.values ?? optsRes?.results ?? optsRes?.options ?? (Array.isArray(optsRes) ? optsRes : []);
+      for (const o of opts) {
+        const id = o?.id ?? o?.optionId;
+        const name = o?.value ?? o?.name;
+        if (id != null && name != null) {
+          out.push({ id: String(id), name: String(name) });
+        }
+      }
+    } catch {
+      // ignore context errors
+    }
+  }
+  const seen = new Set();
+  return out.filter((o) => {
+    if (seen.has(o.id)) return false;
+    seen.add(o.id);
+    return true;
+  });
+}
+
+async function resolveSelectFieldOption(fieldId, rawInput) {
+  const input = String(rawInput ?? "").trim();
+  if (!input) return null;
+
+  let candidateId = null;
+  let candidateName = null;
+  try {
+    const parsed = JSON.parse(input);
+    if (parsed && typeof parsed === "object") {
+      if (parsed.id != null && String(parsed.id).trim() !== "") candidateId = String(parsed.id).trim();
+      if (parsed.name != null && String(parsed.name).trim() !== "") candidateName = String(parsed.name).trim();
+      if (!candidateName && parsed.value != null && String(parsed.value).trim() !== "") {
+        candidateName = String(parsed.value).trim();
+      }
+    }
+  } catch {
+    // input no es JSON, continuar como texto plano
+  }
+  if (!candidateId && /^\d+$/.test(input)) candidateId = input;
+  if (!candidateName && !candidateId) candidateName = input;
+
+  const options = await jiraListFieldOptions(fieldId);
+  if (!options.length) return null;
+
+  if (candidateId) {
+    const byId = options.find((o) => o.id === candidateId);
+    if (byId) return { id: byId.id };
+  }
+  if (candidateName) {
+    const wanted = normalizeText(candidateName);
+    const exact = options.find((o) => normalizeText(o.name) === wanted);
+    if (exact) return { id: exact.id };
+    const contains = options.find((o) => normalizeText(o.name).includes(wanted) || wanted.includes(normalizeText(o.name)));
+    if (contains) return { id: contains.id };
+  }
+  return null;
+}
+
 async function jiraGetTransitions(issueKey) {
   const data = await jiraFetch(`/rest/api/3/issue/${encodeURIComponent(issueKey)}/transitions`);
   return data.transitions || [];
@@ -1777,27 +1852,20 @@ app.post("/api/jira-material-create", async (req, res) => {
       };
     }
     if (cf11144) {
-      // Este campo es select list: debe enviarse como objeto { id } o { name }.
-      let selectValue = null;
-      try {
-        const parsed = JSON.parse(cf11144);
-        if (parsed && typeof parsed === "object") {
-          if (parsed.id != null && String(parsed.id).trim() !== "") {
-            selectValue = { id: String(parsed.id).trim() };
-          } else if (parsed.name != null && String(parsed.name).trim() !== "") {
-            selectValue = { name: String(parsed.name).trim() };
-          } else if (parsed.value != null && String(parsed.value).trim() !== "") {
-            selectValue = { name: String(parsed.value).trim() };
-          }
-        }
-      } catch {
-        // si no es JSON válido, seguir con fallback por texto
+      const resolvedTipoProducto = await resolveSelectFieldOption("customfield_11144", cf11144);
+      if (!resolvedTipoProducto) {
+        const opts = await jiraListFieldOptions("customfield_11144").catch(() => []);
+        return res.status(400).json({
+          error: `No se encontró una opción válida para customfield_11144 (Tipo de Producto) con el valor "${cf11144}".`,
+          hint: "Revisá que el valor exista en las opciones del campo para este proyecto/tipo de issue.",
+          debug: {
+            sent_value: cf11144,
+            available_options_sample: opts.slice(0, 25),
+            available_options_count: opts.length,
+          },
+        });
       }
-      if (!selectValue) {
-        const raw = String(cf11144).trim();
-        selectValue = /^\d+$/.test(raw) ? { id: raw } : { name: raw };
-      }
-      payload.fields.customfield_11144 = selectValue;
+      payload.fields.customfield_11144 = resolvedTipoProducto;
     }
 
     const created = await jiraFetch(`/rest/api/3/issue`, { method: "POST", body: payload });
