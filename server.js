@@ -30,6 +30,12 @@ const JIRA_API_TOKEN = process.env.JIRA_API_TOKEN;
 // Solo mostrar/contar eventos de materiales desde esta fecha (eventos anteriores tenían códigos incorrectos)
 const MATERIAL_ISSUES_MIN_DATE = "2026-03-01";
 
+// Modal Entregar: materiales "extra" con esta opción en lista seleccionable (customfield_10483). El filtro se aplica leyendo el valor en la API (JQL con cf[] suele fallar en campos select).
+const JIRA_STOCK_LABEL_FIELD_ID = process.env.JIRA_STOCK_LABEL_FIELD_ID || "10483";
+const JIRA_PANOL_STOCK_LABEL = process.env.JIRA_PANOL_STOCK_LABEL || "pañol stock";
+/** Opcional: id de opción en Jira (Settings → custom field → opciones) si el texto no coincide exactamente */
+const JIRA_PANOL_STOCK_OPTION_ID = (process.env.JIRA_PANOL_STOCK_OPTION_ID || "").trim();
+
 function jiraAuthHeader() {
   const token = Buffer.from(`${JIRA_EMAIL}:${JIRA_API_TOKEN}`).toString("base64");
   return { Authorization: `Basic ${token}` };
@@ -581,41 +587,53 @@ app.get("/api/jira-material-en-deposito", async (req, res) => {
   try {
     const materialCode = (req.query.material_code || "").trim();
     if (!materialCode) {
-      return res.json({ issues: [] });
+      return res.json({ issues: [], detail_count: 0, detail_total_qty: 0 });
     }
 
-    // Primero intentar con estado en JQL; si no hay resultados, buscar solo por tipo y código y filtrar en código
-    let jql = `issuetype = "materiales" AND cf[11143] ~ "${materialCode}" AND status = "En deposito" ORDER BY updated DESC`;
-    let data = await jiraFetch(
-      `/rest/api/3/search/jql?maxResults=50&fields=summary,status,customfield_11143,customfield_11176,updated&jql=${encodeURIComponent(jql)}`
-    );
+    const statusNorm = (s) => (s && typeof s === "string" ? s.toLowerCase().replace(/ó/g, "o").trim() : "");
+    const isDepositoStatus = (name) => /deposito|depósito|en dep/.test(statusNorm(name));
+    const targetCode = materialCode.toUpperCase();
 
-    let rawIssues = data.issues || [];
-    if (rawIssues.length === 0) {
-      jql = `issuetype = "materiales" AND cf[11143] ~ "${materialCode}" ORDER BY updated DESC`;
-      data = await jiraFetch(
-        `/rest/api/3/search/jql?maxResults=50&fields=summary,status,customfield_11143,customfield_11176,updated&jql=${encodeURIComponent(jql)}`
+    // Buscar siempre por código (sin estado estricto) y paginar para no perder filas.
+    const jql = `issuetype = "materiales" AND cf[11143] ~ "${materialCode}" ORDER BY updated DESC`;
+    const fieldsParam = "summary,status,customfield_11143,customfield_11176,customfield_11442,updated,parent";
+    const pageSize = 100;
+    const maxRows = 1000;
+    let startAt = 0;
+    let rawIssues = [];
+    while (rawIssues.length < maxRows) {
+      const data = await jiraFetch(
+        `/rest/api/3/search/jql?maxResults=${pageSize}&startAt=${startAt}&fields=${fieldsParam}&jql=${encodeURIComponent(jql)}`
       );
-      rawIssues = data.issues || [];
-      const statusNorm = (s) => (s && typeof s === "string" ? s.toLowerCase().replace(/ó/g, "o").trim() : "");
-      rawIssues = rawIssues.filter((i) => {
-        const name = i.fields?.status?.name ?? "";
-        return /deposito|depósito|en dep/.test(statusNorm(name));
-      });
+      const pageIssues = data.issues || [];
+      if (pageIssues.length === 0) break;
+      rawIssues.push(...pageIssues);
+      const total = data.total ?? 0;
+      startAt += pageIssues.length;
+      if (startAt >= total) break;
     }
-    if (rawIssues.length === 0) {
-      jql = `issuetype = "materiales" ORDER BY updated DESC`;
-      data = await jiraFetch(
-        `/rest/api/3/search/jql?maxResults=100&fields=summary,status,customfield_11143,customfield_11176,updated&jql=${encodeURIComponent(jql)}`
-      );
-      rawIssues = (data.issues || []).filter((i) => {
-        const cf = (i.fields?.customfield_11143 ?? "").toString().trim();
-        const match = cf.toUpperCase() === materialCode.toUpperCase() || cf.toUpperCase().includes(materialCode.toUpperCase());
-        if (!match) return false;
-        const name = i.fields?.status?.name ?? "";
-        const sn = name.toLowerCase().replace(/ó/g, "o").trim();
-        return /deposito|depósito|en dep/.test(sn);
-      });
+
+    rawIssues = rawIssues.filter((i) => {
+      const cf = (i.fields?.customfield_11143 ?? "").toString().trim().toUpperCase();
+      const codeMatch = cf === targetCode || cf.includes(targetCode);
+      if (!codeMatch) return false;
+      return isDepositoStatus(i.fields?.status?.name ?? "");
+    });
+
+    const parentKeys = [...new Set(rawIssues.map((i) => i.fields?.parent?.key).filter(Boolean))];
+    const epicSummaryByKey = {};
+    if (parentKeys.length > 0) {
+      const chunkSize = 50;
+      for (let start = 0; start < parentKeys.length; start += chunkSize) {
+        const chunk = parentKeys.slice(start, start + chunkSize);
+        const parentJql = `key in (${chunk.map((k) => `"${k}"`).join(", ")})`;
+        const parentData = await jiraFetch(
+          `/rest/api/3/search/jql?maxResults=${chunk.length}&fields=summary&jql=${encodeURIComponent(parentJql)}`
+        );
+        for (const p of parentData.issues || []) {
+          epicSummaryByKey[p.key] = p.fields?.summary ?? "-";
+        }
+      }
     }
 
     const issues = rawIssues.map((i) => {
@@ -626,19 +644,32 @@ app.get("/api/jira-material-en-deposito", async (req, res) => {
         const n = Number(qRaw.replace(",", "."));
         if (!Number.isNaN(n)) qty = n;
       }
+      const parentKey = i.fields?.parent?.key || null;
+      const unitRaw = i.fields?.customfield_11442;
+      const unitText =
+        typeof unitRaw === "string" ? unitRaw
+        : unitRaw && typeof unitRaw === "object" ? (unitRaw.value || unitRaw.name || unitRaw.id || "")
+        : "";
       return {
         key: i.key,
         summary: i.fields?.summary ?? "",
         status: i.fields?.status?.name ?? "",
         material_code: i.fields?.customfield_11143 ?? "",
         quantity: qty,
+        unit: unitText || "-",
         updated: i.fields?.updated ?? null,
+        epic_key: parentKey,
+        epic_summary: parentKey ? (epicSummaryByKey[parentKey] || "-") : "-",
       };
     });
 
-    res.json({ issues });
+    const detailTotalQty = issues.reduce((acc, it) => {
+      const n = Number(it.quantity);
+      return acc + (Number.isFinite(n) ? n : 0);
+    }, 0);
+    res.json({ issues, detail_count: issues.length, detail_total_qty: detailTotalQty });
   } catch (e) {
-    res.status(500).json({ issues: [], error: e.message });
+    res.status(500).json({ issues: [], detail_count: 0, detail_total_qty: 0, error: e.message });
   }
 });
 
@@ -670,25 +701,237 @@ function parseQuantityFromIssue(fields) {
   return 0;
 }
 
+/** Campos a copiar al clonar un material (extra) hacia el proyecto de la actividad */
+function pickMaterialIssueFieldsForClone(fields) {
+  const cfStock = `customfield_${JIRA_STOCK_LABEL_FIELD_ID}`;
+  return {
+    summary: fields?.summary ?? "",
+    customfield_11143: (fields?.customfield_11143 ?? "").toString().trim(),
+    customfield_10483: fields?.[cfStock],
+    description: fields?.description,
+  };
+}
+
+/** Crea el body para POST issue tipo materiales en un proyecto con cantidad dada */
+function buildCreateMaterialPayload(projectKey, cloneFields, quantity) {
+  const cfStock = `customfield_${JIRA_STOCK_LABEL_FIELD_ID}`;
+  const payload = {
+    project: { key: projectKey },
+    summary: cloneFields.summary || `Material ${cloneFields.customfield_11143 || ""} - ${quantity}`,
+    issuetype: { name: "materiales" },
+    customfield_11143: cloneFields.customfield_11143 || "",
+    customfield_11176: String(quantity),
+  };
+  if (cloneFields.customfield_10483 !== undefined && cloneFields.customfield_10483 !== null) {
+    payload[cfStock] = cloneFields.customfield_10483;
+  }
+  if (cloneFields.description && typeof cloneFields.description === "object") {
+    payload.description = cloneFields.description;
+  }
+  return { fields: payload };
+}
+
+/**
+ * Garantiza que la actividad tenga epic.
+ * - Si la actividad ya tiene parent, devuelve ese epic.
+ * - Si la actividad es Epic, devuelve su key.
+ * - Si no tiene epic y no es Epic, crea un Epic en el mismo proyecto con el mismo summary
+ *   y asigna la actividad a ese parent.
+ */
+async function ensureEpicForActivity(activityKey) {
+  const activityData = await jiraFetch(
+    `/rest/api/3/issue/${encodeURIComponent(activityKey)}?fields=parent,summary,project,issuetype`
+  );
+  const fields = activityData?.fields || {};
+  const projectKey = fields?.project?.key || (activityKey ? activityKey.split("-")[0] : "STOCK");
+  const issueTypeName = (fields?.issuetype?.name || "").toString();
+  const summary = (fields?.summary || "").toString().trim() || activityKey;
+
+  if (fields?.parent?.key) {
+    return { epicKey: fields.parent.key, projectKey, epicCreated: false, activityIssueType: issueTypeName };
+  }
+
+  if (/^epic$/i.test(issueTypeName)) {
+    return { epicKey: activityKey, projectKey, epicCreated: false, activityIssueType: issueTypeName };
+  }
+
+  const createdEpic = await jiraFetch(`/rest/api/3/issue`, {
+    method: "POST",
+    body: {
+      fields: {
+        project: { key: projectKey },
+        summary,
+        issuetype: { name: "Epic" },
+      },
+    },
+  });
+  const epicKey = createdEpic?.key;
+  if (!epicKey) {
+    throw new Error("No se pudo crear Epic para la actividad destino.");
+  }
+
+  await jiraFetch(`/rest/api/3/issue/${encodeURIComponent(activityKey)}`, {
+    method: "PUT",
+    body: { fields: { parent: { key: epicKey } } },
+  });
+
+  return { epicKey, projectKey, epicCreated: true, activityIssueType: issueTypeName };
+}
+
+/** Valor legible de un campo select / lista en Jira REST (objeto { id, value }, string o array multi-select) */
+function normalizeJiraSelectValue(raw) {
+  if (raw == null || raw === "") return "";
+  if (typeof raw === "string") return raw.trim();
+  if (typeof raw === "object") {
+    if (raw.value != null && typeof raw.value !== "object") return String(raw.value).trim();
+    if (raw.name != null) return String(raw.name).trim();
+  }
+  return "";
+}
+
+function jiraSelectFieldValues(raw) {
+  if (raw == null) return [];
+  if (Array.isArray(raw)) return raw.map(normalizeJiraSelectValue).filter(Boolean);
+  const one = normalizeJiraSelectValue(raw);
+  return one ? [one] : [];
+}
+
+function issueMatchesPanolStockField(fields) {
+  const key = `customfield_${JIRA_STOCK_LABEL_FIELD_ID}`;
+  const raw = fields?.[key];
+  if (JIRA_PANOL_STOCK_OPTION_ID && raw != null && typeof raw === "object" && !Array.isArray(raw) && raw.id != null) {
+    if (String(raw.id) === JIRA_PANOL_STOCK_OPTION_ID) return true;
+  }
+  if (Array.isArray(raw)) {
+    for (const item of raw) {
+      if (JIRA_PANOL_STOCK_OPTION_ID && item && typeof item === "object" && item.id != null && String(item.id) === JIRA_PANOL_STOCK_OPTION_ID) {
+        return true;
+      }
+    }
+  }
+  const values = jiraSelectFieldValues(raw);
+  const want = JIRA_PANOL_STOCK_LABEL.trim().toLowerCase();
+  return values.some((v) => v.toLowerCase() === want);
+}
+
+async function resolveEpicKeyFromIssue(issueKey) {
+  const issueData = await jiraFetch(`/rest/api/3/issue/${encodeURIComponent(issueKey)}?fields=parent`);
+  const parent = issueData?.fields?.parent;
+  return parent?.key || issueKey;
+}
+
+async function fetchEpicDepositoMaterials(epicKey) {
+  const jql = `issuetype = "materiales" AND status = "En deposito" AND parent = "${epicKey}" ORDER BY updated DESC`;
+  const data = await jiraFetch(
+    `/rest/api/3/search/jql?maxResults=100&fields=summary,status,customfield_11143,customfield_11176,updated&jql=${encodeURIComponent(jql)}`
+  );
+  return (data.issues || []).map(mapJiraMaterialToIssue);
+}
+
+async function fetchExtraPanolStockMaterials(epicKey) {
+  const cfKey = `customfield_${JIRA_STOCK_LABEL_FIELD_ID}`;
+  const fieldsParam = `summary,status,customfield_11143,customfield_11176,updated,parent,${cfKey}`;
+  const jql = `issuetype = "materiales" AND status = "En deposito" ORDER BY updated DESC`;
+  const collected = [];
+  const pageSize = 50;
+  const maxExtra = 100;
+  let startAt = 0;
+  let cursor = null;
+  const maxIterations = 30;
+
+  for (let iter = 0; iter < maxIterations && collected.length < maxExtra; iter++) {
+    const path = cursor
+      ? `/rest/api/3/search/jql?maxResults=${pageSize}&nextPageToken=${encodeURIComponent(cursor)}&fields=${fieldsParam}&jql=${encodeURIComponent(jql)}`
+      : `/rest/api/3/search/jql?maxResults=${pageSize}&startAt=${startAt}&fields=${fieldsParam}&jql=${encodeURIComponent(jql)}`;
+    const data = await jiraFetch(path);
+    const rawIssues = data.issues || [];
+    const total = data.total ?? 0;
+    for (const i of rawIssues) {
+      if (collected.length >= maxExtra) break;
+      const parentKey = i.fields?.parent?.key;
+      if (parentKey === epicKey) continue;
+      if (!issueMatchesPanolStockField(i.fields)) continue;
+      collected.push(i);
+    }
+    if (rawIssues.length === 0) break;
+    if (data.nextPageToken != null && data.nextPageToken !== "") {
+      cursor = data.nextPageToken;
+      continue;
+    }
+    cursor = null;
+    if (startAt + rawIssues.length >= total) break;
+    startAt += rawIssues.length;
+  }
+
+  return collected.map(mapJiraMaterialToIssue);
+}
+
 // ---------- Materiales en depósito en el mismo epic que la actividad (para flujo Consumir) ----------
 app.get("/api/jira-material-linked-to", async (req, res) => {
   try {
     const issueKey = (req.query.issue_key || "").trim();
     if (!issueKey) return res.json({ issues: [] });
-
-    const issueData = await jiraFetch(`/rest/api/3/issue/${encodeURIComponent(issueKey)}?fields=parent`);
-    const parent = issueData?.fields?.parent;
-    const epicKey = parent?.key || issueKey;
-
-    const jql = `issuetype = "materiales" AND status = "En deposito" AND parent = "${epicKey}" ORDER BY updated DESC`;
-    const data = await jiraFetch(
-      `/rest/api/3/search/jql?maxResults=100&fields=summary,status,customfield_11143,customfield_11176,updated&jql=${encodeURIComponent(jql)}`
-    );
-    const rawIssues = data.issues || [];
-    const issues = rawIssues.map(mapJiraMaterialToIssue);
+    const epicKey = await resolveEpicKeyFromIssue(issueKey);
+    const issues = await fetchEpicDepositoMaterials(epicKey);
     res.json({ issues });
   } catch (e) {
     res.status(500).json({ issues: [], error: e.message });
+  }
+});
+
+// ---------- Materiales en depósito con etiqueta "pañol stock" (customfield_10483), fuera del epic de la actividad (modal Entregar) ----------
+app.get("/api/jira-material-panol-stock", async (req, res) => {
+  try {
+    const issueKey = (req.query.issue_key || "").trim();
+    if (!issueKey) return res.json({ issues: [] });
+    const epicKey = await resolveEpicKeyFromIssue(issueKey);
+    const issues = await fetchExtraPanolStockMaterials(epicKey);
+    res.json({ issues });
+  } catch (e) {
+    res.status(500).json({ issues: [], error: e.message });
+  }
+});
+
+// ---------- Modal Entregar: epic + extra en una sola respuesta JSON (evita doble request / HTML del proxy) ----------
+app.get("/api/jira-materials-entregar", async (req, res) => {
+  try {
+    const issueKey = (req.query.issue_key || "").trim();
+    if (!issueKey) {
+      return res.json({ issues: [], extra_issues: [], epic_error: null, extra_error: null });
+    }
+
+    let epicKey;
+    try {
+      epicKey = await resolveEpicKeyFromIssue(issueKey);
+    } catch (e) {
+      return res.json({
+        issues: [],
+        extra_issues: [],
+        epic_error: e.message,
+        extra_error: e.message,
+      });
+    }
+
+    let issues = [];
+    let extra_issues = [];
+    let epic_error = null;
+    let extra_error = null;
+
+    try {
+      issues = await fetchEpicDepositoMaterials(epicKey);
+    } catch (e) {
+      epic_error = e.message;
+    }
+
+    try {
+      extra_issues = await fetchExtraPanolStockMaterials(epicKey);
+    } catch (e) {
+      extra_error = e.message;
+    }
+
+    res.json({ issues, extra_issues, epic_error, extra_error });
+  } catch (e) {
+    res.status(500).json({ issues: [], extra_issues: [], epic_error: e.message, extra_error: e.message });
   }
 });
 
@@ -954,6 +1197,49 @@ app.get("/api/jira-field-10813-options", async (_req, res) => {
   }
 });
 
+// ---------- Opciones del campo customfield_11442 (unidad; select list) ----------
+app.get("/api/jira-field-11442-options", async (_req, res) => {
+  const fieldId = "customfield_11442";
+  try {
+    const options = [];
+    const contextsRes = await jiraFetch(`/rest/api/3/field/${fieldId}/context`).catch(() => ({}));
+    const contexts = Array.isArray(contextsRes) ? contextsRes : (contextsRes?.values ?? contextsRes?.results ?? []);
+    for (const ctx of contexts) {
+      const ctxId = ctx.id;
+      if (!ctxId) continue;
+      try {
+        const optsRes = await jiraFetch(`/rest/api/3/field/${fieldId}/context/${ctxId}/option?maxResults=200`);
+        const opts = optsRes?.values ?? optsRes?.results ?? optsRes?.options ?? (Array.isArray(optsRes) ? optsRes : []);
+        for (const o of opts) {
+          const id = o.id ?? o.optionId;
+          const value = o.value ?? o.name;
+          const name = o.value ?? o.name ?? o.id;
+          if (id != null || value != null || name != null) {
+            options.push({
+              id: String(id ?? value ?? name ?? ""),
+              value: String(value ?? name ?? id ?? ""),
+              name: String(name ?? value ?? id ?? ""),
+            });
+          }
+        }
+      } catch {
+        // ignore context errors
+      }
+    }
+    const seen = new Set();
+    const unique = options.filter((o) => {
+      const k = o.id || o.value;
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+    if (unique.length > 0) return res.json({ options: unique });
+    return res.json({ options: [], hint: "No se pudieron obtener opciones para customfield_11442." });
+  } catch (e) {
+    res.status(500).json({ options: [], error: e.message });
+  }
+});
+
 // ---------- Diagnóstico: estructura del campo 10813 y transición Entregado ----------
 app.get("/api/debug/jira-field-10813", async (_req, res) => {
   const fieldId = "customfield_10813";
@@ -1075,7 +1361,7 @@ app.get("/api/debug/jira-material-en-deposito", async (req, res) => {
 });
 
 // ---------- Consumir: meter materiales en el epic (parent), vincular solo con la tarea, y transición a Entregado ----------
-// same_epic_consumptions y material_consumptions: opcional { [issueKey]: number }. material_consumptions puede incluir todos los keys (mismo epic y "añadir más"); las actividades nuevas se crean en el proyecto de la actividad seleccionada (activityProjectKey).
+// same_epic_consumptions y material_consumptions: opcional { [issueKey]: number }. Splits parciales: proyecto del epic (parent); material extra en otro proyecto: clon en proyecto de la actividad y descuento en el original.
 app.post("/api/link-material-to-activity", async (req, res) => {
   try {
     const { link_to_issue_key, material_issue_keys, same_epic_keys, customfield_10813, same_epic_consumptions, material_consumptions } = req.body || {};
@@ -1085,14 +1371,18 @@ app.post("/api/link-material-to-activity", async (req, res) => {
     const keys = material_issue_keys.filter((k) => k && typeof k === "string");
     if (keys.length === 0) return res.status(400).json({ error: "material_issue_keys debe tener al menos una key válida" });
 
-    const issueData = await jiraFetch(`/rest/api/3/issue/${encodeURIComponent(link_to_issue_key)}?fields=parent`);
-    const parent = issueData?.fields?.parent;
-    const epicKey = parent?.key || link_to_issue_key;
+    const ensuredActivity = await ensureEpicForActivity(link_to_issue_key);
+    const epicKey = ensuredActivity.epicKey;
     const isTask = link_to_issue_key !== epicKey;
-    const activityProjectKey = (link_to_issue_key && link_to_issue_key.split("-")[0]) || "STOCK";
+    const activityProjectKey = ensuredActivity.projectKey || ((link_to_issue_key && link_to_issue_key.split("-")[0]) || "STOCK");
+
+    const epicIssueData = await jiraFetch(`/rest/api/3/issue/${encodeURIComponent(epicKey)}?fields=project`);
+    const epicProjectKey = epicIssueData?.fields?.project?.key || activityProjectKey;
 
     const sameSet = new Set(Array.isArray(same_epic_keys) ? same_epic_keys.filter((k) => k && typeof k === "string") : []);
     const consumptions = { ...(same_epic_consumptions && typeof same_epic_consumptions === "object" ? same_epic_consumptions : {}), ...(material_consumptions && typeof material_consumptions === "object" ? material_consumptions : {}) };
+
+    const cfStockField = `customfield_${JIRA_STOCK_LABEL_FIELD_ID}`;
 
     // Validar consumos parciales para todos los keys con cantidad indicada (mismo epic y "añadir más")
     const infoByKey = {};
@@ -1100,10 +1390,18 @@ app.post("/api/link-material-to-activity", async (req, res) => {
       const raw = consumptions[key];
       const toConsume = raw != null && raw !== "" ? Number(raw) : null;
       if (toConsume === null || toConsume === undefined) continue;
-      const issueRes = await jiraFetch(`/rest/api/3/issue/${encodeURIComponent(key)}?fields=summary,customfield_11143,customfield_11176`);
+      const issueRes = await jiraFetch(
+        `/rest/api/3/issue/${encodeURIComponent(key)}?fields=summary,customfield_11143,customfield_11176,project`
+      );
       const fields = issueRes?.fields || {};
       const currentQty = parseQuantityFromIssue(fields);
-      infoByKey[key] = { currentQty, summary: fields.summary ?? "", materialCode: (fields.customfield_11143 ?? "").toString().trim() };
+      const materialProjectKey = fields?.project?.key || key.split("-")[0];
+      infoByKey[key] = {
+        currentQty,
+        summary: fields.summary ?? "",
+        materialCode: (fields.customfield_11143 ?? "").toString().trim(),
+        materialProjectKey,
+      };
       if (toConsume <= 0) {
         return res.status(400).json({
           error: `La cantidad a consumir debe ser mayor a 0. En ${key} indicaste ${toConsume}.`,
@@ -1120,11 +1418,60 @@ app.post("/api/link-material-to-activity", async (req, res) => {
       }
     }
 
-    // Construir lista de keys a vincular y transicionar: reemplazar por nueva issue cuando hay consumo parcial (mismo epic o "añadir más")
+    // Construir lista de keys a vincular y transicionar: splits parciales, clon cross-project para material extra, etc.
     let keysToLinkAndTransition = [...keys];
     const createdPartialKeys = [];
+    const crossProjectHandled = new Set();
+    const skipParentToEpic = new Set();
 
+    // Material extra (no está en el epic de la actividad) y en otro proyecto que la actividad: clonar en proyecto de la actividad con la cantidad entregada y descontar el original (0 si se entrega todo).
     for (const materialKey of keys) {
+      if (sameSet.has(materialKey)) continue;
+      const info = infoByKey[materialKey];
+      if (!info || info.materialProjectKey === activityProjectKey) continue;
+
+      const toConsume = consumptions[materialKey] != null && consumptions[materialKey] !== "" ? Number(consumptions[materialKey]) : null;
+      if (toConsume == null || toConsume <= 0) continue;
+
+      const currentQty = info.currentQty;
+      if (toConsume > currentQty) continue;
+
+      const fullIssue = await jiraFetch(
+        `/rest/api/3/issue/${encodeURIComponent(materialKey)}?fields=summary,customfield_11143,customfield_11176,project,description,${cfStockField}`
+      );
+      const originalFields = fullIssue.fields || {};
+      const cloneFields = pickMaterialIssueFieldsForClone(originalFields);
+      const createBody = buildCreateMaterialPayload(activityProjectKey, cloneFields, toConsume);
+      const created = await jiraFetch(`/rest/api/3/issue`, { method: "POST", body: createBody });
+      const newKey = created.key;
+      await jiraFetch(`/rest/api/3/issue/${encodeURIComponent(newKey)}`, {
+        method: "PUT",
+        body: { fields: { parent: { key: epicKey } } },
+      });
+
+      const remaining = currentQty - toConsume;
+      await jiraFetch(`/rest/api/3/issue/${encodeURIComponent(materialKey)}`, {
+        method: "PUT",
+        body: { fields: { customfield_11176: String(remaining) } },
+      });
+
+      keysToLinkAndTransition = keysToLinkAndTransition.map((k) => (k === materialKey ? newKey : k));
+      crossProjectHandled.add(materialKey);
+      skipParentToEpic.add(newKey);
+      createdPartialKeys.push({
+        original: materialKey,
+        new: newKey,
+        consumed: toConsume,
+        remaining,
+        cross_project_extra_clone: true,
+        activity_project: activityProjectKey,
+        original_project: info.materialProjectKey,
+      });
+    }
+
+    // Consumo parcial (mismo epic o extra en el mismo proyecto que la actividad): nueva issue en el proyecto del epic y parent = epic
+    for (const materialKey of keys) {
+      if (crossProjectHandled.has(materialKey)) continue;
       const toConsume = consumptions[materialKey] != null && consumptions[materialKey] !== "" ? Number(consumptions[materialKey]) : null;
       const info = infoByKey[materialKey];
       if (info == null || toConsume == null || toConsume <= 0) continue;
@@ -1134,7 +1481,7 @@ app.post("/api/link-material-to-activity", async (req, res) => {
       const { summary, materialCode } = info;
       const payload = {
         fields: {
-          project: { key: activityProjectKey },
+          project: { key: epicProjectKey },
           summary: summary || `Material ${materialCode || ""} - ${toConsume}`,
           issuetype: { name: "materiales" },
           customfield_11143: materialCode || "",
@@ -1152,12 +1499,11 @@ app.post("/api/link-material-to-activity", async (req, res) => {
         method: "PUT",
         body: { fields: { customfield_11176: String(remaining) } },
       });
-      keysToLinkAndTransition = keysToLinkAndTransition.filter((k) => k !== materialKey);
-      keysToLinkAndTransition.push(newKey);
+      keysToLinkAndTransition = keysToLinkAndTransition.map((k) => (k === materialKey ? newKey : k));
       createdPartialKeys.push({ original: materialKey, new: newKey, consumed: toConsume, remaining });
     }
 
-    const keysToMoveToEpic = keysToLinkAndTransition.filter((k) => !sameSet.has(k));
+    const keysToMoveToEpic = keysToLinkAndTransition.filter((k) => !sameSet.has(k) && !skipParentToEpic.has(k));
 
     let movedToEpic = 0;
     const moveErrors = [];
@@ -1202,8 +1548,11 @@ app.post("/api/link-material-to-activity", async (req, res) => {
         transition_fields_sent: transitionFields,
       },
       epic_key: epicKey,
+      epic_project_key: epicProjectKey,
+      ensured_epic_created_for_activity: ensuredActivity.epicCreated,
       is_task: isTask,
       activity_project_for_new_issues: activityProjectKey,
+      skip_parent_to_epic_keys: [...skipParentToEpic],
       partial_creates: createdPartialKeys,
       move_results: [],
       transition_results: [],
@@ -1260,6 +1609,8 @@ app.post("/api/link-material-to-activity", async (req, res) => {
       transitioned,
       link_to_issue_key,
       epic_key: epicKey,
+      epic_project_key: epicProjectKey,
+      ensured_epic_created_for_activity: ensuredActivity.epicCreated,
       linked_to_task_only: isTask,
       activity_project_for_new_issues: activityProjectKey,
       partial_creates: createdPartialKeys,
@@ -1311,61 +1662,145 @@ app.post("/api/receive-materials", async (req, res) => {
   }
 });
 
-// ---------- 3b) Crear corrección (issue tipo "materiales"); consumo ya no crea issue ----------
-app.post("/api/create", async (req, res) => {
+// ---------- Corregir stock: actualizar cantidades de issues existentes por key ----------
+app.post("/api/jira-material-quantities", async (req, res) => {
   try {
-    const {
-      type,               // solo "correccion"
-      summary,
-      material_code,
-      quantity,
-      link_to_issue_key,
-    } = req.body || {};
-
-    if (!type || type !== "correccion") {
-      return res.status(400).json({ error: "Solo se admite type: correccion" });
-    }
-    if (!summary || !material_code || quantity === undefined || quantity === null || quantity === "") {
-      return res.status(400).json({ error: "Faltan campos obligatorios" });
+    const { updates, material_code } = req.body || {};
+    if (!Array.isArray(updates) || updates.length === 0) {
+      return res.status(400).json({ error: "Falta updates (array no vacío)" });
     }
 
-    const project_key = "STOCK";
-    const issueTypeName = "materiales";
+    const normalizedCode = (material_code || "").toString().trim().toUpperCase();
+    let updated = 0;
+    const errors = [];
 
-    const payload = {
-      fields: {
-        project: { key: project_key },
-        summary,
-        issuetype: { name: issueTypeName },
-        customfield_11143: material_code,
-        customfield_11176: String(quantity ?? ""),
+    for (const row of updates) {
+      const key = (row?.key || "").toString().trim();
+      const n = Number(row?.quantity);
+      if (!key) {
+        errors.push({ key: null, reason: "Key inválida" });
+        continue;
       }
-    };
-
-    const created = await jiraFetch(`/rest/api/3/issue`, { method: "POST", body: payload });
-    const newKey = created.key;
-
-    if (link_to_issue_key) {
-      const linkTypes = await jiraFetch("/rest/api/3/issueLinkType");
-      const types = linkTypes?.issueLinkTypes || [];
-      const linkName =
-        types.find((t) => /relat/i.test(t.name))?.name ||
-        types[0]?.name ||
-        "Relates";
-      await jiraFetch(`/rest/api/3/issueLink`, {
-        method: "POST",
-        body: {
-          type: { name: linkName },
-          inwardIssue: { key: newKey },
-          outwardIssue: { key: link_to_issue_key }
+      if (Number.isNaN(n)) {
+        errors.push({ key, reason: "Cantidad inválida" });
+        continue;
+      }
+      if (n < 0) {
+        errors.push({ key, reason: "La nueva cantidad no puede ser menor a cero" });
+        continue;
+      }
+      try {
+        // Verificación simple de código para evitar editar una issue de otro material por error.
+        const issueData = await jiraFetch(
+          `/rest/api/3/issue/${encodeURIComponent(key)}?fields=customfield_11143,issuetype`
+        );
+        const issueType = (issueData?.fields?.issuetype?.name || "").toString().trim().toLowerCase();
+        const issueCode = (issueData?.fields?.customfield_11143 || "").toString().trim().toUpperCase();
+        if (issueType !== "materiales") {
+          errors.push({ key, reason: "La issue no es de tipo materiales" });
+          continue;
         }
-      });
+        if (normalizedCode && issueCode && issueCode !== normalizedCode) {
+          errors.push({ key, reason: `Código distinto al material seleccionado (${issueCode})` });
+          continue;
+        }
+
+        await jiraFetch(`/rest/api/3/issue/${encodeURIComponent(key)}`, {
+          method: "PUT",
+          body: { fields: { customfield_11176: String(n) } },
+        });
+        updated++;
+      } catch (e) {
+        errors.push({ key, reason: e.message });
+      }
     }
 
-    res.json({ ok: true, key: newKey, browse_url: JIRA_BASE_URL ? `${JIRA_BASE_URL.replace(/\/$/, "")}/browse/${newKey}` : null });
+    res.json({
+      ok: true,
+      updated,
+      errors,
+      has_partial_errors: errors.length > 0,
+    });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
+});
+
+// ---------- Corregir stock: crear material en STOCK cuando no hay issues del código ----------
+app.post("/api/jira-material-create", async (req, res) => {
+  try {
+    const { material_code, summary, quantity, unit_option_id, customfield_11145, customfield_11144 } = req.body || {};
+    const code = (material_code || "").toString().trim();
+    const name = (summary || "").toString().trim();
+    const qty = Number(quantity);
+    const unitId = (unit_option_id || "").toString().trim();
+    const cf11145 = (customfield_11145 || "").toString().trim();
+    const cf11144 = (customfield_11144 || "").toString().trim();
+
+    if (!code || !name || Number.isNaN(qty) || !unitId) {
+      return res.status(400).json({
+        error: "Faltan campos obligatorios: material_code, summary, quantity y unit_option_id.",
+      });
+    }
+    if (qty < 0) {
+      return res.status(400).json({
+        error: "La cantidad no puede ser menor a cero.",
+      });
+    }
+
+    const payload = {
+      fields: {
+        project: { key: "STOCK" },
+        summary: name,
+        issuetype: { name: "materiales" },
+        customfield_11143: code,
+        customfield_11176: String(qty),
+        customfield_11442: { id: unitId },
+      },
+    };
+    const cfStockField = `customfield_${JIRA_STOCK_LABEL_FIELD_ID}`;
+    // Campo select list: preferir id de opción si está configurado; fallback por value.
+    payload.fields[cfStockField] = JIRA_PANOL_STOCK_OPTION_ID
+      ? { id: String(JIRA_PANOL_STOCK_OPTION_ID) }
+      : { value: JIRA_PANOL_STOCK_LABEL };
+    if (cf11145) payload.fields.customfield_11145 = cf11145;
+    if (cf11144) payload.fields.customfield_11144 = cf11144;
+
+    const created = await jiraFetch(`/rest/api/3/issue`, { method: "POST", body: payload });
+    const newKey = created?.key;
+    if (!newKey) throw new Error("Jira no devolvió la key de la issue creada.");
+
+    const transition = await jiraTransitionToEnDeposito(newKey);
+    if (!transition.done) {
+      return res.status(500).json({
+        error: `Se creó la issue ${newKey}, pero no se pudo pasar a En deposito.`,
+        debug: {
+          created_issue_key: newKey,
+          transition_reason: transition.reason || "No hay transición disponible",
+        },
+      });
+    }
+
+    res.json({
+      ok: true,
+      key: newKey,
+      transitioned_to_en_deposito: true,
+      browse_url: JIRA_BASE_URL ? `${JIRA_BASE_URL.replace(/\/$/, "")}/browse/${newKey}` : null,
+    });
+  } catch (e) {
+    res.status(500).json({
+      error: e.message,
+      debug: { error: e.message, stack: process.env.NODE_ENV === "development" ? e.stack : undefined },
+    });
+  }
+});
+
+// Rutas API inexistentes: siempre JSON (evita HTML en 404 y mensajes confusos en el front)
+app.use((req, res) => {
+  if (req.originalUrl.startsWith("/api")) {
+    return res.status(404).json({ error: "Ruta API no encontrada", path: req.originalUrl });
+  }
+  res.status(404).type("text").send("Not found");
 });
 
 const PORT = Number(process.env.PORT) || 3001;

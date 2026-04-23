@@ -12,8 +12,13 @@ async function apiFetch(url, { method = "GET", body } = {}) {
     body: body ? JSON.stringify(body) : undefined,
   });
   const text = await res.text();
-  if (text.trimStart().startsWith("<")) {
-    throw new Error("El backend no respondió con JSON. ¿Está corriendo? Ejecutá en la carpeta del proyecto: node server.js");
+  const ct = (res.headers.get("content-type") || "").toLowerCase();
+  const looksHtml = text.trimStart().startsWith("<") || ct.includes("text/html");
+  if (looksHtml) {
+    throw new Error(
+      "El servidor respondió HTML en lugar de JSON (suele ser error del proxy de Vite o el backend no está en el puerto 3001). " +
+        "Reiniciá el API en la carpeta del proyecto: node server.js. Si usás VITE_API_URL, revisá que apunte a ese mismo servidor."
+    );
   }
   let data;
   try {
@@ -127,247 +132,371 @@ function SortableTh({ columnKey, label, align, menuOpen, onToggleMenu, onSelectA
   );
 }
 
-// Formulario de corrección (modelo B: crea actividad tipo "materiales" en Jira)
-function FormularioCorreccion({ onClose, onSuccess }) {
-  const [summary, setSummary] = useState("");
-  const [materialQuery, setMaterialQuery] = useState("");
-  const [materialOptions, setMaterialOptions] = useState([]);
+// Formulario de corrección: edita cantidades de issues existentes para un mismo código.
+function FormularioCorreccion({ onClose, onSuccess, onResult, initialMaterial }) {
   const [materialCode, setMaterialCode] = useState("");
-  const [quantity, setQuantity] = useState("");
-  const [issueQuery, setIssueQuery] = useState("");
-  const [issueOptions, setIssueOptions] = useState([]);
-  const [issueNextPageToken, setIssueNextPageToken] = useState(null);
-  const [issueLoadingMore, setIssueLoadingMore] = useState(false);
-  const [linkKey, setLinkKey] = useState("");
-  const [selectedIssueDisplay, setSelectedIssueDisplay] = useState(null);
-  const [issueDropdownOpen, setIssueDropdownOpen] = useState(false);
-  const issueDropdownRef = useRef(null);
-  const issueSearchInputRef = useRef(null);
+  const [summary, setSummary] = useState("");
+  const [productoYMedida, setProductoYMedida] = useState("");
+  const [cf11144Value, setCf11144Value] = useState("");
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState("");
+  const [issues, setIssues] = useState([]);
+  const [editedByKey, setEditedByKey] = useState({});
   const [status, setStatus] = useState("");
-  const [successResult, setSuccessResult] = useState(null); // { key, browse_url } después de crear
-
-  const showMaterialSuggestions = materialQuery.trim() !== "" && materialOptions.length > 0 &&
-    (materialCode === "" || materialQuery.trim().toUpperCase() !== materialCode.toUpperCase());
+  const [saving, setSaving] = useState(false);
+  const [createMode, setCreateMode] = useState(false);
+  const [createQuantity, setCreateQuantity] = useState("");
+  const [unitOptions, setUnitOptions] = useState([]);
+  const [unitLoading, setUnitLoading] = useState(false);
+  const [unitHint, setUnitHint] = useState("");
+  const [selectedUnitId, setSelectedUnitId] = useState("");
+  const [creating, setCreating] = useState(false);
 
   useEffect(() => {
-    const q = materialQuery.trim();
-    if (!q) { setMaterialOptions([]); return; }
+    const code = initialMaterial?.material_code || "";
+    const name = initialMaterial?.material_name || "";
+    const pym = initialMaterial?.customfield_11145 || "";
+    const cf11144 = initialMaterial?.customfield_11144 || "";
+    setMaterialCode(code);
+    setSummary(name);
+    setProductoYMedida(pym);
+    setCf11144Value(cf11144);
+    setIssues([]);
+    setEditedByKey({});
+    setStatus("");
+    setDetailError("");
+    setCreateMode(false);
+    setCreateQuantity("");
+    setSelectedUnitId("");
+    setUnitOptions([]);
+    setUnitHint("");
+    if (!code) return;
+
     let alive = true;
-    const run = async () => {
-      try {
-        const res = await fetch(`${API_BASE}/api/materials?query=${encodeURIComponent(q)}`);
-        const data = await res.json();
+    setDetailLoading(true);
+    apiFetch(`/api/jira-material-en-deposito?material_code=${encodeURIComponent(code)}`)
+      .then(({ ok, data }) => {
         if (!alive) return;
-        setMaterialOptions(data.materials || []);
-      } catch { if (!alive) return; setMaterialOptions([]); }
-    };
-    run();
-    return () => { alive = false; };
-  }, [materialQuery]);
-
-  useEffect(() => {
-    if (materialOptions.length !== 1 || materialCode) return;
-    const q = materialQuery.trim().toUpperCase();
-    const one = materialOptions[0];
-    if (one.material_code.toUpperCase() === q || one.material_code.toUpperCase().startsWith(q)) {
-      setMaterialCode(one.material_code);
-      setMaterialQuery(one.material_code);
-      setSummary(one.material_name || "");
-    }
-  }, [materialOptions, materialQuery, materialCode]);
-
-  useEffect(() => {
-    if (!issueDropdownOpen) return;
-    let alive = true;
-    setIssueNextPageToken(null);
-    const run = async () => {
-      const params = new URLSearchParams({ query: issueQuery });
-      const res = await fetch(`${API_BASE}/api/issues?${params.toString()}`);
-      const data = await res.json();
-      if (!alive) return;
-      setIssueOptions(data.issues || []);
-      setIssueNextPageToken(data.nextPageToken ?? null);
-    };
-    run();
-    return () => { alive = false; };
-  }, [issueDropdownOpen, issueQuery]);
-
-  async function loadMoreIssues() {
-    if (!issueNextPageToken || issueQuery.trim() !== "") return;
-    setIssueLoadingMore(true);
-    try {
-      const res = await fetch(
-        `${API_BASE}/api/issues?query=&nextPageToken=${encodeURIComponent(issueNextPageToken)}`
-      );
-      const data = await res.json();
-      setIssueOptions((prev) => [...prev, ...(data.issues || [])]);
-      setIssueNextPageToken(data.nextPageToken ?? null);
-    } finally { setIssueLoadingMore(false); }
-  }
-
-  useEffect(() => {
-    if (issueDropdownOpen) {
-      setIssueQuery("");
-      setTimeout(() => issueSearchInputRef.current?.focus(), 50);
-    }
-  }, [issueDropdownOpen]);
-
-  useEffect(() => {
-    if (!issueDropdownOpen) return;
-    function handleClick(e) {
-      if (issueDropdownRef.current && !issueDropdownRef.current.contains(e.target)) setIssueDropdownOpen(false);
-    }
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [issueDropdownOpen]);
-
-  const selectedIssue = selectedIssueDisplay || issueOptions.find((i) => i.key === linkKey);
-  const canCreate = useMemo(() => {
-    if (!summary.trim() || !materialCode.trim()) return false;
-    if (quantity === "" || Number.isNaN(Number(quantity))) return false;
-    return true;
-  }, [summary, materialCode, quantity]);
-
-  async function onCreate() {
-    setStatus("Creando...");
-    try {
-      const res = await fetch(`${API_BASE}/api/create`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type: "correccion", summary, material_code: materialCode, quantity, link_to_issue_key: linkKey || null })
+        if (!ok) throw new Error(data?.error || "Error al buscar materiales");
+        const rows = data?.issues || [];
+        setIssues(rows);
+        setEditedByKey(Object.fromEntries(rows.map((r) => [r.key, r.quantity != null ? String(r.quantity) : ""])));
+      })
+      .catch((e) => {
+        if (!alive) return;
+        setDetailError(e.message || "Error de conexión");
+        setIssues([]);
+        setEditedByKey({});
+      })
+      .finally(() => {
+        if (alive) setDetailLoading(false);
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Error");
-      setStatus("");
-      setSummary("");
-      setQuantity("");
-      setLinkKey("");
-      setSelectedIssueDisplay(null);
-      setSuccessResult({ key: data.key, browse_url: data.browse_url || null });
-      setStatus(`✅ Actividad creada con éxito. Issue: ${data.key}. Podés rastrearla en Jira.`);
+    return () => { alive = false; };
+  }, [
+    initialMaterial?.material_code,
+    initialMaterial?.material_name,
+    initialMaterial?.customfield_11145,
+    initialMaterial?.customfield_11144,
+  ]);
+
+  useEffect(() => {
+    if (!createMode) return;
+    let alive = true;
+    setUnitLoading(true);
+    setUnitHint("");
+    apiFetch("/api/jira-field-11442-options")
+      .then(({ ok, data }) => {
+        if (!alive) return;
+        if (!ok) throw new Error(data?.error || "Error al cargar unidades");
+        setUnitOptions(data?.options || []);
+        if (!(data?.options?.length)) setUnitHint(data?.hint || "No se encontraron unidades.");
+      })
+      .catch((e) => {
+        if (!alive) return;
+        setUnitOptions([]);
+        setUnitHint(e.message || "Error al cargar unidades");
+      })
+      .finally(() => {
+        if (alive) setUnitLoading(false);
+      });
+    return () => { alive = false; };
+  }, [createMode]);
+
+  const validationError = useMemo(() => {
+    for (const i of issues) {
+      const raw = editedByKey[i.key];
+      if (raw == null || String(raw).trim() === "") return `Completá la cantidad de ${i.key}.`;
+      const n = Number(raw);
+      if (Number.isNaN(n)) return `La cantidad de ${i.key} no es válida.`;
+      if (n < 0) return `La nueva cantidad de ${i.key} no puede ser menor a cero.`;
+    }
+    return "";
+  }, [issues, editedByKey]);
+
+  const hasChanges = useMemo(
+    () => issues.some((i) => String(editedByKey[i.key] ?? "") !== String(i.quantity ?? "")),
+    [issues, editedByKey]
+  );
+  const canSave = issues.length > 0 && hasChanges && !validationError && !saving;
+  const canCreate = createMode && createQuantity !== "" && !Number.isNaN(Number(createQuantity)) && Number(createQuantity) >= 0 && selectedUnitId && !creating;
+
+  function setEditedQuantity(key, value) {
+    setEditedByKey((prev) => ({ ...prev, [key]: value }));
+  }
+
+  async function onSaveChanges() {
+    if (!canSave) return;
+    setStatus("");
+    const updates = issues
+      .filter((i) => String(editedByKey[i.key] ?? "") !== String(i.quantity ?? ""))
+      .map((i) => ({ key: i.key, quantity: Number(editedByKey[i.key]) }));
+    setSaving(true);
+    try {
+      const { ok, data } = await apiFetch("/api/jira-material-quantities", {
+        method: "POST",
+        body: { updates, material_code: materialCode },
+      });
+      if (!ok) {
+        const msg = `❌ ${data?.error || "No se pudieron guardar cambios"}`;
+        setStatus(msg);
+        onResult?.({
+          title: "Resultado de Corregir stock",
+          message: msg,
+          isError: true,
+          debug: data?.debug || data || null,
+        });
+        onClose?.();
+        return;
+      }
+      const updatedCount = data?.updated ?? 0;
+      const errCount = data?.errors?.length || 0;
+      const msg = errCount > 0
+        ? `⚠️ Se actualizaron ${updatedCount} fila(s), con ${errCount} error(es).`
+        : `✅ Cantidades actualizadas (${updatedCount} fila(s)).`;
+      setStatus(msg);
+      onResult?.({
+        title: "Resultado de Corregir stock",
+        message: msg,
+        isError: errCount > 0,
+        debug: errCount > 0 ? { errors: data?.errors || [] } : null,
+      });
+      onSuccess?.();
+      onClose?.();
     } catch (e) {
-      setStatus(`❌ ${e.message}`);
+      const msg = `❌ ${e.message}`;
+      setStatus(msg);
+      onResult?.({
+        title: "Resultado de Corregir stock",
+        message: msg,
+        isError: true,
+        debug: { error: e.message },
+      });
+      onClose?.();
+    } finally {
+      setSaving(false);
     }
   }
 
-  const dropdownZ = { zIndex: 1050 };
+  async function onCreateMaterial() {
+    if (!canCreate) return;
+    setStatus("");
+    setCreating(true);
+    try {
+      const { ok, data } = await apiFetch("/api/jira-material-create", {
+        method: "POST",
+        body: {
+          material_code: materialCode,
+          summary,
+          quantity: Number(createQuantity),
+          unit_option_id: selectedUnitId,
+          customfield_11145: productoYMedida || undefined,
+          customfield_11144: cf11144Value || undefined,
+        },
+      });
+      if (!ok) {
+        const msg = `❌ ${data?.error || "No se pudo crear material"}`;
+        setStatus(msg);
+        onResult?.({
+          title: "Resultado de Corregir stock",
+          message: msg,
+          isError: true,
+          debug: data?.debug || data || null,
+        });
+        onClose?.();
+        return;
+      }
+      const msg = `✅ Material creado con éxito. Issue: ${data?.key || "-"}.`;
+      setStatus(msg);
+      onResult?.({
+        title: "Resultado de Corregir stock",
+        message: msg,
+        isError: false,
+        debug: { created_issue_key: data?.key || null, browse_url: data?.browse_url || null },
+      });
+      onSuccess?.();
+      onClose?.();
+    } catch (e) {
+      const msg = `❌ ${e.message}`;
+      setStatus(msg);
+      onResult?.({
+        title: "Resultado de Corregir stock",
+        message: msg,
+        isError: true,
+        debug: { error: e.message },
+      });
+      onClose?.();
+    } finally {
+      setCreating(false);
+    }
+  }
 
   return (
     <div className="modal-sheet">
       <section className="modal-sheet-section">
-        <p className="modal-sheet-section-hint" style={{ marginTop: 0 }}>Crea una issue tipo materiales en Jira. La cantidad puede ser positiva o negativa.</p>
+        <p className="modal-sheet-section-hint" style={{ marginTop: 0 }}>
+          Editá cantidades existentes de actividades de materiales para este código. No se crea una actividad nueva.
+        </p>
       </section>
 
       <section className="modal-sheet-section">
         <h3 className="modal-sheet-section-title">Código material</h3>
-        <div style={{ position: "relative", ...dropdownZ }}>
-          <input
-            className="modal-sheet-control"
-            value={materialQuery}
-            onChange={(e) => { setMaterialQuery(e.target.value); if (materialCode) setMaterialCode(""); }}
-            placeholder="Ej. E084"
-            autoComplete="off"
-          />
-          {showMaterialSuggestions && (
-            <ul className="modal-sheet-suggest-list">
-              {materialOptions.map((m) => (
-                <li
-                  key={m.material_code}
-                  className="modal-sheet-suggest-item"
-                  onClick={() => { setMaterialCode(m.material_code); setMaterialQuery(m.material_code); setSummary(m.material_name || ""); }}
-                >
-                  <strong>{m.material_code}</strong>
-                  <span style={{ color: "var(--text-secondary)", marginLeft: 6 }}>{m.material_name}{m.product_type ? ` · ${m.product_type}` : ""}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
+        <input className="modal-sheet-control" value={materialCode} readOnly />
       </section>
 
       <section className="modal-sheet-section">
         <h3 className="modal-sheet-section-title">Nombre</h3>
-        <input className="modal-sheet-control" value={summary} onChange={(e) => setSummary(e.target.value)} />
+        <input className="modal-sheet-control" value={summary} readOnly />
       </section>
 
       <section className="modal-sheet-section">
-        <h3 className="modal-sheet-section-title">Cantidad</h3>
-        <input className="modal-sheet-control" value={quantity} onChange={(e) => setQuantity(e.target.value)} placeholder="Ej. -3 o 5" />
+        <h3 className="modal-sheet-section-title">Producto y Medida (customfield_11145)</h3>
+        <input className="modal-sheet-control" value={productoYMedida || ""} readOnly />
       </section>
 
       <section className="modal-sheet-section">
-        <h3 className="modal-sheet-section-title">Vincular actividad</h3>
-        <p className="modal-sheet-section-hint" style={{ marginTop: 0 }}>Opcional.</p>
-        <div ref={issueDropdownRef} style={{ position: "relative", ...dropdownZ }}>
-          <button type="button" className="modal-sheet-control modal-sheet-control--trigger" onClick={() => setIssueDropdownOpen((o) => !o)}>
-            {linkKey && selectedIssue ? `${selectedIssue.key} — ${selectedIssue.summary}` : "Buscar y seleccionar"}
-          </button>
-          {issueDropdownOpen && (
-            <div className="modal-sheet-dropdown">
-              <input
-                ref={issueSearchInputRef}
-                className="modal-sheet-control"
-                style={{ borderRadius: 0, borderWidth: "0 0 1px 0" }}
-                type="text"
-                value={issueQuery}
-                onChange={(e) => setIssueQuery(e.target.value)}
-                placeholder="Buscar…"
-                onKeyDown={(e) => e.stopPropagation()}
-              />
-              <ul className="modal-sheet-dropdown-list">
-                {issueOptions.length === 0 ? (
-                  <li className="modal-sheet-dropdown-empty">{issueQuery.trim() ? "Sin coincidencias" : "Escribí para buscar"}</li>
-                ) : (
-                  <>
-                    {issueOptions.map((i) => (
-                      <li
-                        key={i.key}
-                        className="modal-sheet-dropdown-item"
-                        onClick={() => { setLinkKey(i.key); setSelectedIssueDisplay(i); setIssueDropdownOpen(false); }}
-                      >
-                        <span className="modal-sheet-dropdown-key">{i.key}</span>
-                        <span className="modal-sheet-dropdown-summary">{i.summary}</span>
-                        <span className="modal-sheet-dropdown-proj">{i.project}</span>
-                      </li>
+        <h3 className="modal-sheet-section-title">Campo 11144 (customfield_11144)</h3>
+        <input className="modal-sheet-control" value={cf11144Value || ""} readOnly />
+      </section>
+
+      <section className="modal-sheet-section">
+        <h3 className="modal-sheet-section-title">Materiales del código</h3>
+        {detailLoading ? (
+          <div className="modal-sheet-placeholder">Cargando…</div>
+        ) : detailError ? (
+          <div className="modal-sheet-placeholder modal-sheet-placeholder--error">{detailError}</div>
+        ) : issues.length === 0 ? (
+          <div className="modal-sheet-placeholder">
+            No hay actividades para este código en estado En depósito.
+          </div>
+        ) : (
+          <div className="modal-sheet-table-wrap">
+            <table className="modal-sheet-table">
+              <thead>
+                <tr>
+                  <th>Clave</th>
+                  <th>Descripción</th>
+                  <th>Epic</th>
+                  <th className="modal-sheet-cell-num">Cantidad actual</th>
+                  <th>Nueva cantidad</th>
+                  <th>Unidad</th>
+                  <th>Estado</th>
+                </tr>
+              </thead>
+              <tbody>
+                {issues.map((i) => (
+                  <tr key={i.key}>
+                    <td className="modal-sheet-cell-key">{i.key}</td>
+                    <td>{i.summary || "—"}</td>
+                    <td>{i.epic_summary || "-"}</td>
+                    <td className="modal-sheet-cell-num">{i.quantity ?? "—"}</td>
+                    <td>
+                      <input
+                        type="number"
+                        min={0}
+                        step="any"
+                        className="modal-sheet-qty-input"
+                        value={editedByKey[i.key] ?? ""}
+                        onChange={(e) => setEditedQuantity(i.key, e.target.value)}
+                      />
+                    </td>
+                    <td>{i.unit || "-"}</td>
+                    <td style={{ color: "var(--text-secondary)" }}>{i.status || "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      {!detailLoading && !detailError && issues.length === 0 && (
+        <section className="modal-sheet-section">
+          <h3 className="modal-sheet-section-title">Crear material</h3>
+          {!createMode ? (
+            <button type="button" className="modal-sheet-btn-primary" onClick={() => setCreateMode(true)}>
+              Crear material
+            </button>
+          ) : (
+            <>
+              <p className="modal-sheet-section-hint" style={{ marginTop: 0 }}>
+                Se creará una issue tipo materiales en el proyecto STOCK con código y nombre preestablecidos.
+              </p>
+              <div style={{ display: "grid", gap: 10 }}>
+                <label style={{ color: "var(--text-primary)" }}>
+                  Cantidad (customfield_11176)
+                  <input
+                    className="modal-sheet-control"
+                    type="number"
+                    min={0}
+                    step="any"
+                    value={createQuantity}
+                    onChange={(e) => setCreateQuantity(e.target.value)}
+                    placeholder="Ej. 10"
+                  />
+                </label>
+                <label style={{ color: "var(--text-primary)" }}>
+                  Unidad (customfield_11442)
+                  <select
+                    className="modal-sheet-control"
+                    value={selectedUnitId}
+                    onChange={(e) => setSelectedUnitId(e.target.value)}
+                    disabled={unitLoading}
+                  >
+                    <option value="">{unitLoading ? "Cargando..." : "Seleccionar unidad"}</option>
+                    {unitOptions.map((opt) => (
+                      <option key={opt.id} value={opt.id}>{opt.name || opt.value || opt.id}</option>
                     ))}
-                    {issueNextPageToken && !issueQuery.trim() && (
-                      <li className="modal-sheet-dropdown-more">
-                        <button type="button" className="modal-sheet-btn-ghost" style={{ width: "100%" }} onClick={(e) => { e.stopPropagation(); loadMoreIssues(); }} disabled={issueLoadingMore}>
-                          {issueLoadingMore ? "Cargando…" : "Cargar más"}
-                        </button>
-                      </li>
-                    )}
-                  </>
-                )}
-              </ul>
-            </div>
+                  </select>
+                </label>
+                {unitHint && <p className="modal-sheet-section-hint" style={{ marginTop: 0 }}>{unitHint}</p>}
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <button type="button" className="modal-sheet-btn-primary" disabled={!canCreate} onClick={onCreateMaterial}>
+                    {creating ? "Creando..." : "Crear material"}
+                  </button>
+                  <button type="button" className="modal-sheet-btn-secondary" onClick={() => setCreateMode(false)}>
+                    Cancelar
+                  </button>
+                </div>
+              </div>
+            </>
           )}
-        </div>
-      </section>
-
-      {successResult ? (
-        <footer className="modal-sheet-footer">
-          <button type="button" className="modal-sheet-btn-primary" onClick={() => { setSuccessResult(null); setStatus(""); onSuccess?.(); }}>Cerrar</button>
-          <span className="modal-sheet-footer-status" style={{ color: "var(--text-primary)" }}>{status}</span>
-          {successResult.browse_url && (
-            <p className="modal-sheet-hint-link" style={{ margin: 0 }}>
-              <a href={successResult.browse_url} target="_blank" rel="noopener noreferrer">Abrir en Jira</a>
-            </p>
-          )}
-        </footer>
-      ) : (
-        <footer className="modal-sheet-footer">
-          <button type="button" className="modal-sheet-btn-primary" disabled={!canCreate} onClick={onCreate}>Crear</button>
-          {onClose && <button type="button" className="modal-sheet-btn-secondary" onClick={onClose}>Cancelar</button>}
-          {status && <span className="modal-sheet-footer-status">{status}</span>}
-        </footer>
+        </section>
       )}
+
+      <footer className="modal-sheet-footer">
+        <button type="button" className="modal-sheet-btn-primary" disabled={!canSave} onClick={onSaveChanges}>
+          {saving ? "Guardando..." : "Guardar corrección"}
+        </button>
+        {onClose && <button type="button" className="modal-sheet-btn-secondary" onClick={onClose}>Cerrar</button>}
+        {validationError && <span className="modal-sheet-footer-status modal-sheet-footer-status--error">{validationError}</span>}
+        {status && <span className="modal-sheet-footer-status">{status}</span>}
+      </footer>
     </div>
   );
 }
 
-// Formulario Entregar: actividad (Problemas, Detalles o Epic) y materiales en depósito del mismo epic, en tabla.
-function FormularioConsumo({ onClose, onSuccess }) {
+// Formulario Entregar: actividad (Problemas, Detalles o Epic), materiales en depósito del mismo epic, y extras con etiqueta pañol stock (cf. 10483).
+function FormularioConsumo({ onClose, onSuccess, onResult }) {
   const [issueQuery, setIssueQuery] = useState("");
   const [issueOptions, setIssueOptions] = useState([]);
   const [issueNextPageToken, setIssueNextPageToken] = useState(null);
@@ -382,6 +511,13 @@ function FormularioConsumo({ onClose, onSuccess }) {
   const [linkedLoading, setLinkedLoading] = useState(false);
   const [linkedError, setLinkedError] = useState("");
   const [selectedLinkedKeys, setSelectedLinkedKeys] = useState([]);
+  const [extraMaterials, setExtraMaterials] = useState([]);
+  const [extraLoading, setExtraLoading] = useState(false);
+  const [extraError, setExtraError] = useState("");
+  const [selectedExtraKeys, setSelectedExtraKeys] = useState([]);
+  const [extraFilterKey, setExtraFilterKey] = useState("");
+  const [extraFilterDescription, setExtraFilterDescription] = useState("");
+  const [extraFiltersOpen, setExtraFiltersOpen] = useState(false);
   const [field10813Options, setField10813Options] = useState([]);
   const [field10813Loading, setField10813Loading] = useState(false);
   const [selectedField10813, setSelectedField10813] = useState("");
@@ -458,60 +594,108 @@ function FormularioConsumo({ onClose, onSuccess }) {
       setLinkedActivities([]);
       setLinkedError("");
       setLinkedConsumptionByKey({});
+      setExtraMaterials([]);
+      setExtraError("");
+      setSelectedLinkedKeys([]);
+      setSelectedExtraKeys([]);
       return;
     }
+    setSelectedLinkedKeys([]);
+    setSelectedExtraKeys([]);
+    setLinkedConsumptionByKey({});
     let alive = true;
     setLinkedLoading(true);
+    setExtraLoading(true);
     setLinkedError("");
-    apiFetch(`/api/jira-material-linked-to?issue_key=${encodeURIComponent(linkKey)}`)
+    setExtraError("");
+    apiFetch(`/api/jira-materials-entregar?issue_key=${encodeURIComponent(linkKey)}`)
       .then(({ ok, data }) => {
         if (!alive) return;
-        if (!ok && data?.error) setLinkedError(data.error);
-        else setLinkedError("");
+        if (!ok) {
+          const msg = data?.error || "Error al cargar materiales";
+          setLinkedError(msg);
+          setExtraError(msg);
+          setLinkedActivities([]);
+          setExtraMaterials([]);
+          return;
+        }
         setLinkedActivities(data?.issues || []);
-        setSelectedLinkedKeys([]);
-        setLinkedConsumptionByKey({});
+        setExtraMaterials(data?.extra_issues || []);
+        setLinkedError(data?.epic_error || "");
+        setExtraError(data?.extra_error || "");
       })
       .catch((e) => {
         if (!alive) return;
-        setLinkedError(e.message || "Error de conexión");
+        const msg = e.message || "Error de conexión";
+        setLinkedError(msg);
+        setExtraError(msg);
         setLinkedActivities([]);
+        setExtraMaterials([]);
       })
-      .finally(() => { if (alive) setLinkedLoading(false); });
+      .finally(() => {
+        if (!alive) return;
+        setLinkedLoading(false);
+        setExtraLoading(false);
+      });
     return () => { alive = false; };
   }, [linkKey]);
 
   function toggleLinkedKey(key) {
     setSelectedLinkedKeys((prev) => prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]);
   }
+  function toggleExtraKey(key) {
+    setSelectedExtraKeys((prev) => prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]);
+  }
   function setLinkedConsumption(key, value) {
     const n = value === "" ? "" : Number(value);
     setLinkedConsumptionByKey((prev) => (Number.isNaN(n) || n === "" ? { ...prev, [key]: value } : { ...prev, [key]: n }));
   }
-  const linkedActivitiesByKey = useMemo(() => Object.fromEntries((linkedActivities || []).map((a) => [a.key, a])), [linkedActivities]);
+  const mergedActivitiesByKey = useMemo(() => ({
+    ...Object.fromEntries((linkedActivities || []).map((a) => [a.key, a])),
+    ...Object.fromEntries((extraMaterials || []).map((a) => [a.key, a])),
+  }), [linkedActivities, extraMaterials]);
   useEffect(() => {
-    const activitiesByKey = Object.fromEntries((linkedActivities || []).map((a) => [a.key, a]));
+    const activitiesByKey = mergedActivitiesByKey;
     setLinkedConsumptionByKey((prev) => {
       let next = { ...prev };
-      for (const key of selectedLinkedKeys) {
+      for (const key of [...selectedLinkedKeys, ...selectedExtraKeys]) {
         const act = activitiesByKey[key];
         const maxQty = act?.quantity != null ? act.quantity : 0;
         if (maxQty > 0 && (prev[key] == null || prev[key] === "")) next[key] = maxQty;
       }
       return next;
     });
-  }, [selectedLinkedKeys, linkedActivities]);
+  }, [selectedLinkedKeys, selectedExtraKeys, mergedActivitiesByKey]);
 
   function toggleAllLinked() {
     if (selectedLinkedKeys.length === linkedActivities.length) setSelectedLinkedKeys([]);
     else setSelectedLinkedKeys(linkedActivities.map((a) => a.key));
   }
+  function toggleAllExtra() {
+    const visibleKeys = filteredExtraMaterials.map((a) => a.key);
+    const allVisibleSelected = visibleKeys.length > 0 && visibleKeys.every((k) => selectedExtraKeys.includes(k));
+    if (allVisibleSelected) {
+      setSelectedExtraKeys((prev) => prev.filter((k) => !visibleKeys.includes(k)));
+    } else {
+      setSelectedExtraKeys((prev) => [...new Set([...prev, ...visibleKeys])]);
+    }
+  }
 
   const selectedIssue = selectedIssueDisplay || issueOptions.find((i) => i.key === linkKey);
-  const totalSelected = selectedLinkedKeys.length;
+  const filteredExtraMaterials = useMemo(() => {
+    const keyQ = extraFilterKey.trim().toLowerCase();
+    const descQ = extraFilterDescription.trim().toLowerCase();
+    return extraMaterials.filter((a) => {
+      const byKey = keyQ ? (a.key || "").toLowerCase().includes(keyQ) : true;
+      const byDesc = descQ ? (a.summary || "").toLowerCase().includes(descQ) : true;
+      return byKey && byDesc;
+    });
+  }, [extraMaterials, extraFilterKey, extraFilterDescription]);
+  const allSelectedKeys = useMemo(() => [...selectedLinkedKeys, ...selectedExtraKeys], [selectedLinkedKeys, selectedExtraKeys]);
+  const totalSelected = allSelectedKeys.length;
   const consumptionValid = useMemo(() => {
-    for (const key of selectedLinkedKeys) {
-      const act = linkedActivitiesByKey[key];
+    for (const key of allSelectedKeys) {
+      const act = mergedActivitiesByKey[key];
       const maxQty = act?.quantity != null ? act.quantity : 0;
       const val = linkedConsumptionByKey[key];
       const n = val === "" || val == null ? null : Number(val);
@@ -521,7 +705,7 @@ function FormularioConsumo({ onClose, onSuccess }) {
       if (n > maxQty) return { ok: false, key, msg: `No se puede entregar más de lo disponible. En ${key} la cantidad disponible es ${maxQty}. La cantidad del material nunca puede quedar menor a cero.` };
     }
     return { ok: true };
-  }, [selectedLinkedKeys, linkedActivitiesByKey, linkedConsumptionByKey]);
+  }, [allSelectedKeys, mergedActivitiesByKey, linkedConsumptionByKey]);
   const canCreate = useMemo(() => {
     if (!linkKey) return false;
     if (totalSelected === 0) return false;
@@ -531,7 +715,7 @@ function FormularioConsumo({ onClose, onSuccess }) {
   }, [linkKey, totalSelected, selectedField10813, consumptionValid.ok]);
 
   async function onVincular() {
-    const allKeys = [...selectedLinkedKeys];
+    const allKeys = [...selectedLinkedKeys, ...selectedExtraKeys];
     setStatus("Vinculando y pasando a Entregado...");
     setConsumoDebug(null);
     try {
@@ -545,7 +729,7 @@ function FormularioConsumo({ onClose, onSuccess }) {
           same_epic_consumptions: selectedLinkedKeys.length > 0
             ? Object.fromEntries(
                 selectedLinkedKeys.map((k) => {
-                  const act = linkedActivitiesByKey[k];
+                  const act = mergedActivitiesByKey[k];
                   const maxQty = act?.quantity != null ? act.quantity : 0;
                   const val = linkedConsumptionByKey[k];
                   const n = val != null && val !== "" ? Number(val) : maxQty;
@@ -554,10 +738,10 @@ function FormularioConsumo({ onClose, onSuccess }) {
                 })
               )
             : undefined,
-          material_consumptions: selectedLinkedKeys.length > 0
+          material_consumptions: allKeys.length > 0
             ? Object.fromEntries(
-                selectedLinkedKeys.map((k) => {
-                  const act = linkedActivitiesByKey[k];
+                allKeys.map((k) => {
+                  const act = mergedActivitiesByKey[k];
                   const maxQty = act?.quantity != null ? act.quantity : 0;
                   const val = linkedConsumptionByKey[k];
                   const n = val != null && val !== "" ? Number(val) : maxQty;
@@ -569,8 +753,11 @@ function FormularioConsumo({ onClose, onSuccess }) {
         },
       });
       if (!ok) {
+        const msg = `❌ ${data?.error || "Error"}`;
         setConsumoDebug(data?.debug || { error: data?.error || "Error" });
-        setStatus(`❌ ${data?.error || "Error"}`);
+        setStatus(msg);
+        onResult?.({ title: "Resultado de Entregar", message: msg, isError: true, debug: data?.debug || { error: data?.error || "Error" } });
+        onClose?.();
         return;
       }
       const hasErrors = data.has_partial_errors || (data.move_errors?.length > 0) || (data.transition_errors?.length > 0) || (data.personal_field_errors?.length > 0);
@@ -580,7 +767,10 @@ function FormularioConsumo({ onClose, onSuccess }) {
         if (data.move_errors?.length) errParts.push(`${data.move_errors.length} error(es) al mover al epic`);
         if (data.transition_errors?.length) errParts.push(`${data.transition_errors.length} error(es) al pasar a Entregado`);
         if (data.personal_field_errors?.length) errParts.push(`${data.personal_field_errors.length} error(es) al asignar personal`);
-        setStatus(`⚠️ Completado con errores: ${errParts.join("; ")}. Revisá el log de debug abajo. El modal se mantiene abierto.`);
+        const msg = `⚠️ Completado con errores: ${errParts.join("; ")}.`;
+        setStatus(msg);
+        onResult?.({ title: "Resultado de Entregar", message: msg, isError: true, debug: data.debug || data });
+        onClose?.();
         return;
       }
       const parts = [];
@@ -588,16 +778,22 @@ function FormularioConsumo({ onClose, onSuccess }) {
       if (data.linked === 0 && data.linked_to_task_only === false) parts.push("materiales en el epic (sin vínculo; la actividad seleccionada es el epic)");
       if (data.moved_to_epic != null && data.moved_to_epic > 0) parts.push(`${data.moved_to_epic} movidas al epic de la actividad`);
       if (data.transitioned != null) parts.push(`${data.transitioned} pasadas a Entregado (se descontarán del stock)`);
-      setStatus(parts.length ? `✅ ${parts.join("; ")}.` : `✅ Listo.`);
+      const okMsg = parts.length ? `✅ ${parts.join("; ")}.` : "✅ Listo.";
+      setStatus(okMsg);
       setLinkKey("");
       setSelectedIssueDisplay(null);
       setSelectedLinkedKeys([]);
+      setSelectedExtraKeys([]);
       setConsumoDebug(null);
       setLinkedConsumptionByKey({});
+      onResult?.({ title: "Resultado de Entregar", message: okMsg, isError: false, debug: data?.debug || null });
       onSuccess?.();
     } catch (e) {
-      setStatus(`❌ ${e.message}`);
+      const msg = `❌ ${e.message}`;
+      setStatus(msg);
       setConsumoDebug({ error: e.message });
+      onResult?.({ title: "Resultado de Entregar", message: msg, isError: true, debug: { error: e.message } });
+      onClose?.();
     }
   }
 
@@ -681,73 +877,193 @@ function FormularioConsumo({ onClose, onSuccess }) {
       </section>
 
       {linkKey && (
-        <section className="modal-sheet-section">
-          <h3 className="modal-sheet-section-title">Materiales en depósito</h3>
-          <p className="modal-sheet-section-hint">Mismo epic que la actividad. Si entregás menos que el total, el resto queda en una issue nueva.</p>
-          {linkedLoading ? (
-            <div className="modal-sheet-placeholder">Cargando…</div>
-          ) : linkedError ? (
-            <div className="modal-sheet-placeholder modal-sheet-placeholder--error">{linkedError}</div>
-          ) : linkedActivities.length === 0 ? (
-            <div className="modal-sheet-placeholder">No hay materiales en depósito en este epic.</div>
-          ) : (
-            <>
-              <div className="modal-sheet-toolbar">
-                <button type="button" className="modal-sheet-btn-ghost" onClick={toggleAllLinked}>
-                  {selectedLinkedKeys.length === linkedActivities.length ? "Deseleccionar todo" : "Seleccionar todo"}
-                </button>
-                <span className="modal-sheet-toolbar-meta">{selectedLinkedKeys.length} / {linkedActivities.length}</span>
-              </div>
-              <div className="modal-sheet-table-wrap">
-                <table className="modal-sheet-table">
-                  <thead>
-                    <tr>
-                      <th className="modal-sheet-cell-check" title="Seleccionar filas"><span className="modal-sheet-th-dim">Sel.</span></th>
-                      <th>Clave</th>
-                      <th>Descripción</th>
-                      <th>Código</th>
-                      <th className="modal-sheet-cell-num">Depósito</th>
-                      <th>Estado</th>
-                      <th>A entregar</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {linkedActivities.map((a) => {
-                      const sel = selectedLinkedKeys.includes(a.key);
-                      return (
-                        <tr key={a.key} className={sel ? "modal-sheet-row--selected" : undefined}>
-                          <td className="modal-sheet-cell-check">
-                            <input type="checkbox" checked={sel} onChange={() => toggleLinkedKey(a.key)} aria-label={`Seleccionar ${a.key}`} />
-                          </td>
-                          <td className="modal-sheet-cell-key">{a.key}</td>
-                          <td>{a.summary || "—"}</td>
-                          <td className="modal-sheet-cell-mono">{a.material_code || "—"}</td>
-                          <td className="modal-sheet-cell-num">{a.quantity ?? "—"}</td>
-                          <td style={{ color: "var(--text-secondary)" }}>{a.status || "—"}</td>
-                          <td>
-                            {sel ? (
+        <>
+          <section className="modal-sheet-section">
+            <h3 className="modal-sheet-section-title">Materiales en depósito</h3>
+            <p className="modal-sheet-section-hint">Mismo epic que la actividad. Si entregás menos que el total, el resto queda en una issue nueva.</p>
+            {linkedLoading ? (
+              <div className="modal-sheet-placeholder">Cargando…</div>
+            ) : linkedError ? (
+              <div className="modal-sheet-placeholder modal-sheet-placeholder--error">{linkedError}</div>
+            ) : linkedActivities.length === 0 ? (
+              <div className="modal-sheet-placeholder">No hay materiales en depósito en este epic.</div>
+            ) : (
+              <>
+                <div className="modal-sheet-toolbar">
+                  <button type="button" className="modal-sheet-btn-ghost" onClick={toggleAllLinked}>
+                    {selectedLinkedKeys.length === linkedActivities.length ? "Deseleccionar todo" : "Seleccionar todo"}
+                  </button>
+                  <span className="modal-sheet-toolbar-meta">{selectedLinkedKeys.length} / {linkedActivities.length}</span>
+                </div>
+                <div className="modal-sheet-table-wrap">
+                  <table className="modal-sheet-table">
+                    <thead>
+                      <tr>
+                        <th className="modal-sheet-cell-check" title="Seleccionar filas"><span className="modal-sheet-th-dim">Sel.</span></th>
+                        <th>Clave</th>
+                        <th>Descripción</th>
+                        <th>Código</th>
+                        <th className="modal-sheet-cell-num">Depósito</th>
+                        <th>Estado</th>
+                        <th>A entregar</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {linkedActivities.map((a) => {
+                        const sel = selectedLinkedKeys.includes(a.key);
+                        return (
+                          <tr key={a.key} className={sel ? "modal-sheet-row--selected" : undefined}>
+                            <td className="modal-sheet-cell-check">
+                              <input type="checkbox" checked={sel} onChange={() => toggleLinkedKey(a.key)} aria-label={`Seleccionar ${a.key}`} />
+                            </td>
+                            <td className="modal-sheet-cell-key">{a.key}</td>
+                            <td>{a.summary || "—"}</td>
+                            <td className="modal-sheet-cell-mono">{a.material_code || "—"}</td>
+                            <td className="modal-sheet-cell-num">{a.quantity ?? "—"}</td>
+                            <td style={{ color: "var(--text-secondary)" }}>{a.status || "—"}</td>
+                            <td>
+                              {sel ? (
+                                <input
+                                  type="number"
+                                  className="modal-sheet-qty-input"
+                                  min={0}
+                                  step="any"
+                                  max={a.quantity != null ? a.quantity : undefined}
+                                  value={linkedConsumptionByKey[a.key] ?? a.quantity ?? ""}
+                                  onChange={(e) => setLinkedConsumption(a.key, e.target.value)}
+                                />
+                              ) : (
+                                <span style={{ color: "var(--text-secondary)" }}>—</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+          </section>
+
+          <section className="modal-sheet-section">
+            <h3 className="modal-sheet-section-title">Materiales extra (pañol stock)</h3>
+            <p className="modal-sheet-section-hint">Lista seleccionable (campo 10483): opción «pañol stock». En depósito y fuera del epic de esta actividad; al entregar se mueven al epic de la actividad.</p>
+            {extraLoading ? (
+              <div className="modal-sheet-placeholder">Cargando…</div>
+            ) : extraError ? (
+              <div className="modal-sheet-placeholder modal-sheet-placeholder--error">{extraError}</div>
+            ) : extraMaterials.length === 0 ? (
+              <div className="modal-sheet-placeholder">No hay materiales extra con etiqueta pañol stock disponibles.</div>
+            ) : (
+              <>
+                <div className="modal-sheet-toolbar">
+                  <button type="button" className="modal-sheet-btn-ghost" onClick={toggleAllExtra}>
+                    {filteredExtraMaterials.length > 0 && filteredExtraMaterials.every((a) => selectedExtraKeys.includes(a.key)) ? "Deseleccionar visibles" : "Seleccionar visibles"}
+                  </button>
+                  <button
+                    type="button"
+                    className="modal-sheet-btn-ghost"
+                    onClick={() => {
+                      setExtraFiltersOpen((open) => {
+                        const next = !open;
+                        if (!next) {
+                          setExtraFilterKey("");
+                          setExtraFilterDescription("");
+                        }
+                        return next;
+                      });
+                    }}
+                  >
+                    {extraFiltersOpen ? "Ocultar buscadores" : "Buscar en tabla"}
+                  </button>
+                  <span className="modal-sheet-toolbar-meta">{selectedExtraKeys.length} / {extraMaterials.length}</span>
+                </div>
+                <div className="modal-sheet-table-wrap">
+                  <table className="modal-sheet-table">
+                    <thead>
+                      <tr>
+                        <th className="modal-sheet-cell-check" title="Seleccionar filas"><span className="modal-sheet-th-dim">Sel.</span></th>
+                        <th style={{ minWidth: extraFiltersOpen ? 220 : undefined }}>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                            <span>Clave</span>
+                            {extraFiltersOpen && (
                               <input
-                                type="number"
-                                className="modal-sheet-qty-input"
-                                min={0}
-                                step="any"
-                                max={a.quantity != null ? a.quantity : undefined}
-                                value={linkedConsumptionByKey[a.key] ?? a.quantity ?? ""}
-                                onChange={(e) => setLinkedConsumption(a.key, e.target.value)}
+                                type="text"
+                                className="modal-sheet-control"
+                                style={{ padding: "6px 8px" }}
+                                placeholder="Filtrar clave"
+                                value={extraFilterKey}
+                                onChange={(e) => setExtraFilterKey(e.target.value)}
                               />
-                            ) : (
-                              <span style={{ color: "var(--text-secondary)" }}>—</span>
                             )}
+                          </div>
+                        </th>
+                        <th style={{ minWidth: extraFiltersOpen ? 280 : undefined }}>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                            <span>Descripción</span>
+                            {extraFiltersOpen && (
+                              <input
+                                type="text"
+                                className="modal-sheet-control"
+                                style={{ padding: "6px 8px" }}
+                                placeholder="Filtrar descripción"
+                                value={extraFilterDescription}
+                                onChange={(e) => setExtraFilterDescription(e.target.value)}
+                              />
+                            )}
+                          </div>
+                        </th>
+                        <th>Código</th>
+                        <th className="modal-sheet-cell-num">Depósito</th>
+                        <th>Estado</th>
+                        <th>A entregar</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredExtraMaterials.length === 0 ? (
+                        <tr>
+                          <td colSpan={7} style={{ padding: 14, textAlign: "center", color: "var(--text-secondary)" }}>
+                            No hay filas que coincidan con los filtros.
                           </td>
                         </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </>
-          )}
-        </section>
+                      ) : filteredExtraMaterials.map((a) => {
+                        const sel = selectedExtraKeys.includes(a.key);
+                        return (
+                          <tr key={a.key} className={sel ? "modal-sheet-row--selected" : undefined}>
+                            <td className="modal-sheet-cell-check">
+                              <input type="checkbox" checked={sel} onChange={() => toggleExtraKey(a.key)} aria-label={`Seleccionar extra ${a.key}`} />
+                            </td>
+                            <td className="modal-sheet-cell-key">{a.key}</td>
+                            <td>{a.summary || "—"}</td>
+                            <td className="modal-sheet-cell-mono">{a.material_code || "—"}</td>
+                            <td className="modal-sheet-cell-num">{a.quantity ?? "—"}</td>
+                            <td style={{ color: "var(--text-secondary)" }}>{a.status || "—"}</td>
+                            <td>
+                              {sel ? (
+                                <input
+                                  type="number"
+                                  className="modal-sheet-qty-input"
+                                  min={0}
+                                  step="any"
+                                  max={a.quantity != null ? a.quantity : undefined}
+                                  value={linkedConsumptionByKey[a.key] ?? a.quantity ?? ""}
+                                  onChange={(e) => setLinkedConsumption(a.key, e.target.value)}
+                                />
+                              ) : (
+                                <span style={{ color: "var(--text-secondary)" }}>—</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+          </section>
+        </>
       )}
 
       <footer className="modal-sheet-footer">
@@ -758,21 +1074,13 @@ function FormularioConsumo({ onClose, onSuccess }) {
         {!consumptionValid.ok && consumptionValid.msg && (
           <span className="modal-sheet-footer-status modal-sheet-footer-status--error">{consumptionValid.msg}</span>
         )}
-        {status && <span className="modal-sheet-footer-status">{status}</span>}
       </footer>
-
-      {consumoDebug != null && (
-        <div className="modal-sheet-debug">
-          <div>Log de debug</div>
-          <pre>{JSON.stringify(consumoDebug, null, 2)}</pre>
-        </div>
-      )}
     </div>
   );
 }
 
 // Formulario Recibir: seleccionar Orden de Compra, listar materiales (tipo materiales) en el mismo sprint, pasar seleccionados a "En deposito"
-function FormularioRecibir({ onClose, onSuccess }) {
+function FormularioRecibir({ onClose, onSuccess, onResult }) {
   const [issueQuery, setIssueQuery] = useState("");
   const [issueOptions, setIssueOptions] = useState([]);
   const [issueNextPageToken, setIssueNextPageToken] = useState(null);
@@ -883,16 +1191,24 @@ function FormularioRecibir({ onClose, onSuccess }) {
       const errCount = data.transition_errors?.length || 0;
       const done = data.transitioned || 0;
       if (errCount > 0) {
-        setStatus(`⚠️ ${done} pasadas a En depósito; ${errCount} con error.`);
+        const msg = `⚠️ ${done} pasadas a En depósito; ${errCount} con error.`;
+        setStatus(msg);
+        onResult?.({ title: "Resultado de Recibir", message: msg, isError: true, debug: data });
+        onClose?.();
       } else {
-        setStatus(`✅ ${done} material(es) pasados a En depósito.`);
+        const msg = `✅ ${done} material(es) pasados a En depósito.`;
+        setStatus(msg);
         setOrdenCompraKey("");
         setSelectedOrdenCompraDisplay(null);
         setSelectedKeys([]);
+        onResult?.({ title: "Resultado de Recibir", message: msg, isError: false, debug: data });
         onSuccess?.();
       }
     } catch (e) {
-      setStatus(`❌ ${e.message}`);
+      const msg = `❌ ${e.message}`;
+      setStatus(msg);
+      onResult?.({ title: "Resultado de Recibir", message: msg, isError: true, debug: { error: e.message } });
+      onClose?.();
     }
   }
 
@@ -1008,7 +1324,6 @@ function FormularioRecibir({ onClose, onSuccess }) {
       <footer className="modal-sheet-footer">
         <button type="button" className="modal-sheet-btn-primary" disabled={!canRecibir} onClick={onRecibir}>Recibir</button>
         {onClose && <button type="button" className="modal-sheet-btn-secondary" onClick={onClose}>Cancelar</button>}
-        {status && <span className="modal-sheet-footer-status">{status}</span>}
       </footer>
     </div>
   );
@@ -1022,6 +1337,14 @@ function VistaStock() {
   const [filterCode, setFilterCode] = useState("");
   const [filterName, setFilterName] = useState("");
   const [openModal, setOpenModal] = useState(null); // null | "correccion" | "consumo" | "recibir"
+  const [operationResult, setOperationResult] = useState(null); // { title, message, isError, debug }
+  const [detailModalOpen, setDetailModalOpen] = useState(false);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState("");
+  const [detailMaterial, setDetailMaterial] = useState(null); // { code, name }
+  const [detailIssues, setDetailIssues] = useState([]);
+  const [detailMeta, setDetailMeta] = useState({ count: 0, totalQty: 0 });
+  const [correctionMaterial, setCorrectionMaterial] = useState(null); // { material_code, material_name, customfield_11145, customfield_11144 }
   const [refreshKey, setRefreshKey] = useState(0);
   const [sortColumn, setSortColumn] = useState(null); // "codigo" | "nombre" | "tipo_producto" | "unidad" | "stock"
   const [sortDirection, setSortDirection] = useState("asc"); // "asc" | "desc"
@@ -1103,6 +1426,42 @@ function VistaStock() {
     width: "100%",
   };
 
+  function handleOperationResult(result) {
+    setOpenModal(null);
+    setOperationResult(result || null);
+  }
+
+  async function openStockDetail(row) {
+    const code = row?.material_code || "";
+    const name = row?.material_name || "";
+    setDetailMaterial({ code, name });
+    setDetailModalOpen(true);
+    setDetailLoading(true);
+    setDetailError("");
+    setDetailIssues([]);
+    setDetailMeta({ count: 0, totalQty: 0 });
+    try {
+      const { ok, data } = await apiFetch(`/api/jira-material-en-deposito?material_code=${encodeURIComponent(code)}`);
+      if (!ok) throw new Error(data?.error || "Error al buscar detalle");
+      setDetailIssues(data?.issues || []);
+      setDetailMeta({ count: data?.detail_count || 0, totalQty: data?.detail_total_qty || 0 });
+    } catch (e) {
+      setDetailError(e.message || "Error de conexión");
+    } finally {
+      setDetailLoading(false);
+    }
+  }
+
+  function openStockCorrection(row) {
+    setCorrectionMaterial({
+      material_code: row?.material_code || "",
+      material_name: row?.material_name || "",
+      customfield_11145: row?.material_name || "",
+      customfield_11144: row?.product_type || "",
+    });
+    setOpenModal("correccion");
+  }
+
   return (
     <div style={{ fontFamily: "system-ui", padding: 16, display: "flex", gap: 24, minHeight: 0, flex: 1 }}>
       {/* Columna izquierda: tabla */}
@@ -1129,12 +1488,13 @@ function VistaStock() {
                 <SortableTh columnKey="tipo_producto" label="Tipo producto" align="left" menuOpen={openSortColumn === "tipo_producto"} onToggleMenu={() => setOpenSortColumn((c) => c === "tipo_producto" ? null : "tipo_producto")} onSelectAsc={() => { setSortColumn("tipo_producto"); setSortDirection("asc"); }} onSelectDesc={() => { setSortColumn("tipo_producto"); setSortDirection("desc"); }} onCloseMenu={() => setOpenSortColumn(null)} thStyle={{ textAlign: "left", padding: "12px 14px" }} />
                 <SortableTh columnKey="stock" label="Stock" align="right" menuOpen={openSortColumn === "stock"} onToggleMenu={() => setOpenSortColumn((c) => c === "stock" ? null : "stock")} onSelectAsc={() => { setSortColumn("stock"); setSortDirection("asc"); }} onSelectDesc={() => { setSortColumn("stock"); setSortDirection("desc"); }} onCloseMenu={() => setOpenSortColumn(null)} thStyle={{ textAlign: "right", padding: "12px 14px" }} />
                 <SortableTh columnKey="unidad" label="Unidad" align="left" menuOpen={openSortColumn === "unidad"} onToggleMenu={() => setOpenSortColumn((c) => c === "unidad" ? null : "unidad")} onSelectAsc={() => { setSortColumn("unidad"); setSortDirection("asc"); }} onSelectDesc={() => { setSortColumn("unidad"); setSortDirection("desc"); }} onCloseMenu={() => setOpenSortColumn(null)} thStyle={{ textAlign: "left", padding: "12px 14px" }} />
+                <th style={{ textAlign: "left", padding: "12px 14px" }}>Acciones</th>
               </tr>
             </thead>
             <tbody>
               {sortedData.length === 0 ? (
                 <tr>
-                  <td colSpan={5} style={{ padding: 24, textAlign: "center", color: "var(--text-secondary)" }}>
+                  <td colSpan={6} style={{ padding: 24, textAlign: "center", color: "var(--text-secondary)" }}>
                     {items.length === 0 ? (
                       <>
                         No se recibieron materiales desde la base de datos.
@@ -1154,6 +1514,24 @@ function VistaStock() {
                     <td style={{ padding: "10px 14px" }}>{row.product_type || "—"}</td>
                     <td style={{ padding: "10px 14px", textAlign: "right", fontWeight: 500 }}>{row.stock}</td>
                     <td style={{ padding: "10px 14px" }}>{row.unit || "—"}</td>
+                    <td style={{ padding: "10px 14px" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                        <button
+                          type="button"
+                          className="modal-sheet-btn-ghost"
+                          onClick={() => openStockDetail(row)}
+                        >
+                          Ver detalle
+                        </button>
+                        <button
+                          type="button"
+                          className="modal-sheet-btn-ghost"
+                          onClick={() => openStockCorrection(row)}
+                        >
+                          Corregir stock
+                        </button>
+                      </div>
+                    </td>
                   </tr>
                 ))
               )}
@@ -1166,9 +1544,6 @@ function VistaStock() {
       <div style={{ width: 280, flexShrink: 0, display: "flex", flexDirection: "column", gap: 12 }}>
         <h3 style={{ margin: 0, fontSize: "1rem", color: "var(--text-primary)", fontWeight: 600 }}>Crear movimiento</h3>
         <p style={{ margin: 0, color: "var(--text-secondary)", fontSize: "0.9rem" }}>Elegí el tipo de movimiento.</p>
-        <button type="button" onClick={() => setOpenModal("correccion")} style={btnStyle}>
-          📋 Corregir stock
-        </button>
         <button type="button" onClick={() => setOpenModal("consumo")} style={btnStyle}>
           ➕ Entregar
         </button>
@@ -1178,13 +1553,100 @@ function VistaStock() {
       </div>
 
       <Modal open={openModal === "correccion"} onClose={() => setOpenModal(null)} title="Corregir stock" contentClassName="modal-content--wide modal-content--sheet" bodyClassName="modal-body--compact">
-        <FormularioCorreccion onClose={() => setOpenModal(null)} onSuccess={() => setOpenModal(null)} />
+        <FormularioCorreccion
+          onClose={() => setOpenModal(null)}
+          onSuccess={() => {
+            setRefreshKey((k) => k + 1);
+            setOpenModal(null);
+          }}
+          onResult={handleOperationResult}
+          initialMaterial={correctionMaterial}
+        />
       </Modal>
       <Modal open={openModal === "consumo"} onClose={() => setOpenModal(null)} title="Entregar material" contentClassName="modal-content--wide modal-content--sheet" bodyClassName="modal-body--compact">
-        <FormularioConsumo onClose={() => setOpenModal(null)} onSuccess={() => setOpenModal(null)} />
+        <FormularioConsumo onClose={() => setOpenModal(null)} onSuccess={() => setOpenModal(null)} onResult={handleOperationResult} />
       </Modal>
       <Modal open={openModal === "recibir"} onClose={() => setOpenModal(null)} title="Recibir material" contentClassName="modal-content--wide modal-content--sheet" bodyClassName="modal-body--compact">
-        <FormularioRecibir onClose={() => setOpenModal(null)} onSuccess={() => setOpenModal(null)} />
+        <FormularioRecibir onClose={() => setOpenModal(null)} onSuccess={() => setOpenModal(null)} onResult={handleOperationResult} />
+      </Modal>
+      <Modal
+        open={Boolean(operationResult)}
+        onClose={() => setOperationResult(null)}
+        title={operationResult?.title || "Resultado"}
+        contentClassName="modal-content--wide modal-content--sheet"
+        bodyClassName="modal-body--compact"
+      >
+        <div className="modal-sheet">
+          <section className="modal-sheet-section">
+            <p style={{ margin: 0, color: operationResult?.isError ? "var(--error)" : "var(--text-primary)", fontWeight: 600 }}>
+              {operationResult?.message || ""}
+            </p>
+          </section>
+          {operationResult?.debug != null && (
+            <section className="modal-sheet-section">
+              <h3 className="modal-sheet-section-title">Log de debug</h3>
+              <div className="modal-sheet-debug" style={{ marginTop: 0 }}>
+                <pre>{JSON.stringify(operationResult.debug, null, 2)}</pre>
+              </div>
+            </section>
+          )}
+        </div>
+      </Modal>
+      <Modal
+        open={detailModalOpen}
+        onClose={() => setDetailModalOpen(false)}
+        title={`Detalle de stock${detailMaterial?.code ? `: ${detailMaterial.code}` : ""}`}
+        contentClassName="modal-content--wide modal-content--sheet"
+        bodyClassName="modal-body--compact"
+      >
+        <div className="modal-sheet">
+          <section className="modal-sheet-section">
+            {detailMaterial?.name && (
+              <p className="modal-sheet-section-hint" style={{ marginTop: 0 }}>
+                {detailMaterial.name}
+              </p>
+            )}
+            {!detailLoading && !detailError && (
+              <p className="modal-sheet-section-hint" style={{ marginTop: 0 }}>
+                {detailMeta.count} fila(s) en depósito; total cantidad: {detailMeta.totalQty}
+              </p>
+            )}
+            {detailLoading ? (
+              <div className="modal-sheet-placeholder">Cargando detalle…</div>
+            ) : detailError ? (
+              <div className="modal-sheet-placeholder modal-sheet-placeholder--error">{detailError}</div>
+            ) : detailIssues.length === 0 ? (
+              <div className="modal-sheet-placeholder">No hay actividades en estado En depósito para este código.</div>
+            ) : (
+              <div className="modal-sheet-table-wrap">
+                <table className="modal-sheet-table">
+                  <thead>
+                    <tr>
+                      <th>Clave</th>
+                      <th>Descripción</th>
+                      <th>Epic</th>
+                      <th className="modal-sheet-cell-num">Cantidad</th>
+                      <th>Unidad</th>
+                      <th>Estado</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {detailIssues.map((i) => (
+                      <tr key={i.key}>
+                        <td className="modal-sheet-cell-key">{i.key}</td>
+                        <td>{i.summary || "—"}</td>
+                        <td>{i.epic_summary || "-"}</td>
+                        <td className="modal-sheet-cell-num">{i.quantity ?? "—"}</td>
+                        <td>{i.unit || "-"}</td>
+                        <td style={{ color: "var(--text-secondary)" }}>{i.status || "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+        </div>
       </Modal>
     </div>
   );
